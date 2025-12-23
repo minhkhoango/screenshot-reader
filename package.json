@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && rm -rf dist && VITE_ENTRY=background vite build && VITE_ENTRY=content vite build && cp public/manifest.json dist/",
     "preview": "vite preview"
   },
   "devDependencies": {

@@ -4,8 +4,7 @@
   "version": "1.0.0",
   "action": {},
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "permissions": ["activeTab", "scripting", "storage"],
   "content_scripts": [
