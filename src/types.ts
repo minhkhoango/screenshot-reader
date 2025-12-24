@@ -17,7 +17,8 @@ export interface SelectionRect extends Point, Dimension {}
 export const ExtensionAction = {
   ACTIVATE_OVERLAY: 'ACTIVATE_OVERLAY',
   CAPTURE_SUCCESS: 'CAPTURE_SUCCESS',
-  PING: 'PING',
+  PING_CONTENT: 'PING_CONTENT',
+  PING_OFFSCREEN: 'PING_OFFSCREEN',
 };
 
 export type ExtensionAction =
@@ -26,12 +27,13 @@ export type ExtensionAction =
 export type ExtensionMessage =
   | { action: typeof ExtensionAction.ACTIVATE_OVERLAY }
   | { action: typeof ExtensionAction.CAPTURE_SUCCESS; payload: SelectionRect }
-  | { action: typeof ExtensionAction.PING };
+  | { action: typeof ExtensionAction.PING_CONTENT }
+  | { action: typeof ExtensionAction.PING_OFFSCREEN };
 
 export interface MessageResponse {
   status: 'ok' | 'error';
   message?: string;
-  data?: unknown;
+  data?: SelectionRect;
 }
 
 export interface StorageSchema {

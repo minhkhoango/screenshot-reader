@@ -98,6 +98,7 @@ class GhostOverlay {
       rect.width > CONFIG.MIN_SELECTION_ZX &&
       rect.height > CONFIG.MIN_SELECTION_ZY
     ) {
+      console.log('Image captured:', rect);
       chrome.runtime.sendMessage<ExtensionMessage>({
         action: ExtensionAction.CAPTURE_SUCCESS,
         payload: rect,
@@ -145,7 +146,7 @@ chrome.runtime.onMessage.addListener(
     _sender: chrome.runtime.MessageSender,
     sendResponse: (response: MessageResponse) => void
   ) => {
-    if (message.action === ExtensionAction.PING) {
+    if (message.action === ExtensionAction.PING_CONTENT) {
       sendResponse({ status: 'ok' });
       return;
     }
