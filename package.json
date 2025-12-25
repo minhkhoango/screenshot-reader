@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && rm -rf dist && VITE_ENTRY=background vite build && VITE_ENTRY=content vite build && VITE_ENTRY=offscreen vite build && cp public/manifest.json dist/",
+    "build": "tsc && rm -rf dist && VITE_ENTRY=background vite build && VITE_ENTRY=content vite build && VITE_ENTRY=offscreen vite build && cp -r public/* dist/",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -13,5 +13,8 @@
     "@types/node": "^25.0.3",
     "typescript": "~5.9.3",
     "vite": "^7.2.4"
+  },
+  "dependencies": {
+    "tesseract.js": "^7.0.0"
   }
 }

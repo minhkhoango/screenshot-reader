@@ -59,7 +59,6 @@ class GhostOverlay {
     this.canvas.removeEventListener('mousedown', this.handleMouseDown);
     this.canvas.removeEventListener('mousemove', this.handleMouseMove);
     this.canvas.removeEventListener('mouseup', this.handleMouseUp);
-
     window.removeEventListener('keydown', this.handleKeyDown);
     this.host.remove();
   }
@@ -71,7 +70,6 @@ class GhostOverlay {
     this.canvas.addEventListener('mousedown', this.handleMouseDown);
     this.canvas.addEventListener('mousemove', this.handleMouseMove);
     this.canvas.addEventListener('mouseup', this.handleMouseUp);
-
     window.addEventListener('keydown', this.handleKeyDown);
     this.draw();
   }
@@ -108,7 +106,7 @@ class GhostOverlay {
   };
 
   private handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key == 'Escape') this.destroy();
+    if (e.key === 'Escape') this.destroy();
   };
 
   private draw() {
@@ -146,17 +144,18 @@ chrome.runtime.onMessage.addListener(
     _sender: chrome.runtime.MessageSender,
     sendResponse: (response: MessageResponse) => void
   ) => {
-    if (message.action === ExtensionAction.PING_CONTENT) {
-      sendResponse({ status: 'ok' });
-      return;
-    }
+    switch (message.action) {
+      case ExtensionAction.PING_CONTENT:
+        sendResponse({ status: 'ok' });
+        break;
 
-    if (message.action === ExtensionAction.ACTIVATE_OVERLAY) {
-      if (activeOverlay) activeOverlay.destroy();
-      activeOverlay = new GhostOverlay();
-      activeOverlay.mount();
-      activeOverlay.activate();
-      sendResponse({ status: 'ok' });
+      case ExtensionAction.ACTIVATE_OVERLAY:
+        if (activeOverlay) activeOverlay.destroy();
+        activeOverlay = new GhostOverlay();
+        activeOverlay.mount();
+        activeOverlay.activate();
+        sendResponse({ status: 'ok' });
+        break;
     }
     return false;
   }
