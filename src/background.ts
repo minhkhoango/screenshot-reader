@@ -1,5 +1,6 @@
+import { FILES, STORAGE_KEYS, OCR } from './constants';
 import { ExtensionAction } from './types';
-import type { ExtensionMessage, MessageResponse } from './types';
+import type { ExtensionMessage, MessageResponse, SessionStorage } from './types';
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id || !tab.url) return;
@@ -11,9 +12,11 @@ chrome.action.onClicked.addListener(async (tab) => {
   try {
     // Capture a full screenshot
     const dataUrl: string = await chrome.tabs.captureVisibleTab({
-      format: 'png',
+      format: OCR.CAPTURE_FORMAT,
     });
-    await chrome.storage.session.set({ capturedImage: dataUrl });
+    await chrome.storage.session.set<SessionStorage>({
+      [STORAGE_KEYS.CAPTURED_IMAGE]: dataUrl,
+    });
 
     // start the UI
     await ensureContentScriptLoaded(tab.id);
@@ -26,7 +29,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     }
 
     // warm up the offscreen engine
-    await setupOffscreenDocument('offscreen.html');
+    await setupOffscreenDocument(FILES.OFFSCREEN_HTML);
   } catch (err) {
     console.error('Background workflow error:', err);
   }
@@ -43,9 +46,10 @@ chrome.runtime.onMessage.addListener(
       case ExtensionAction.CAPTURE_SUCCESS: {
         console.log('Captured selection:', message.payload);
 
-        const raw = await chrome.storage.session.get('capturedImage');
-        const capturedImage =
-          typeof raw.capturedImage === 'string' ? raw.capturedImage : undefined;
+        const storage = await chrome.storage.session.get<SessionStorage>(
+          STORAGE_KEYS.CAPTURED_IMAGE
+        );
+        const capturedImage = storage.capturedImage;
 
         if (!capturedImage) {
           console.error('No image found in storage');
@@ -83,7 +87,7 @@ async function ensureContentScriptLoaded(tabId: number): Promise<void> {
   } catch {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ['content.js'],
+      files: [FILES.CONTENT_SCRIPT],
     });
   }
 }
@@ -122,7 +126,7 @@ async function setupOffscreenDocument(path: string): Promise<void> {
   creatingOffscreenPromise = chrome.offscreen.createDocument({
     url: path,
     reasons: [chrome.offscreen.Reason.BLOBS],
-    justification: 'Processing screenshot image data for OCR',
+    justification: OCR.JUSTIFICATION,
   });
 
   await creatingOffscreenPromise;

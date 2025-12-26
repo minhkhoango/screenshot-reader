@@ -7,7 +7,32 @@ import type {
   SelectionRect,
 } from './types';
 
-import { OVERLAY_ID, Z_INDEX_MAX, COLORS, CONFIG } from './constants';
+import { OVERLAY_ID, COLORS, CONFIG, UI } from './constants';
+
+let activeOverlay: GhostOverlay | null = null;
+
+chrome.runtime.onMessage.addListener(
+  (
+    message: ExtensionMessage,
+    _sender: chrome.runtime.MessageSender,
+    sendResponse: (response: MessageResponse) => void
+  ) => {
+    switch (message.action) {
+      case ExtensionAction.PING_CONTENT:
+        sendResponse({ status: 'ok' });
+        break;
+
+      case ExtensionAction.ACTIVATE_OVERLAY:
+        if (activeOverlay) activeOverlay.destroy();
+        activeOverlay = new GhostOverlay();
+        activeOverlay.mount();
+        activeOverlay.activate();
+        sendResponse({ status: 'ok' });
+        break;
+    }
+    return false;
+  }
+);
 
 class GhostOverlay {
   private host: HTMLDivElement;
@@ -32,10 +57,10 @@ class GhostOverlay {
       position: 'fixed',
       top: '0',
       left: '0',
-      width: '100vw',
-      height: '100vh',
-      zIndex: Z_INDEX_MAX,
-      pointerEvents: 'none',
+      width: UI.FULL_WIDTH,
+      height: UI.FULL_HEIGHT,
+      zIndex: UI.Z_INDEX_MAX,
+      pointerEvents: UI.POINTER_EVENTS_DISABLED,
     });
 
     const dpr = window.devicePixelRatio || 1;
@@ -64,8 +89,8 @@ class GhostOverlay {
   }
 
   public activate() {
-    this.host.style.pointerEvents = 'auto'; // Allow clicks
-    this.host.style.cursor = 'crosshair'; // pointer to '+' sign
+    this.host.style.pointerEvents = UI.POINTER_EVENTS_ENABLED; // Allow clicks
+    this.host.style.cursor = COLORS.POINTER_CROSSHAIR; // pointer to '+' sign
 
     this.canvas.addEventListener('mousedown', this.handleMouseDown);
     this.canvas.addEventListener('mousemove', this.handleMouseMove);
@@ -106,7 +131,7 @@ class GhostOverlay {
   };
 
   private handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') this.destroy();
+    if (e.key === UI.ESCAPE_KEY) this.destroy();
   };
 
   private draw() {
@@ -121,7 +146,7 @@ class GhostOverlay {
       const { x, y, width, height } = this.getSelectionRect();
       this.ctx.clearRect(x, y, width, height);
       this.ctx.strokeStyle = COLORS.SELECTION_BORDER;
-      this.ctx.lineWidth = 2;
+      this.ctx.lineWidth = UI.CANVAS_LINE_WIDTH;
       this.ctx.strokeRect(x, y, width, height);
     }
   }
@@ -135,28 +160,3 @@ class GhostOverlay {
     };
   }
 }
-
-let activeOverlay: GhostOverlay | null = null;
-
-chrome.runtime.onMessage.addListener(
-  (
-    message: ExtensionMessage,
-    _sender: chrome.runtime.MessageSender,
-    sendResponse: (response: MessageResponse) => void
-  ) => {
-    switch (message.action) {
-      case ExtensionAction.PING_CONTENT:
-        sendResponse({ status: 'ok' });
-        break;
-
-      case ExtensionAction.ACTIVATE_OVERLAY:
-        if (activeOverlay) activeOverlay.destroy();
-        activeOverlay = new GhostOverlay();
-        activeOverlay.mount();
-        activeOverlay.activate();
-        sendResponse({ status: 'ok' });
-        break;
-    }
-    return false;
-  }
-);

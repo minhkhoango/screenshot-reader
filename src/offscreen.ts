@@ -1,3 +1,4 @@
+import { FILES, OCR } from './constants';
 import { ExtensionAction } from './types';
 import type { ExtensionMessage, MessageResponse, SelectionRect } from './types';
 import Tesseract from 'tesseract.js';
@@ -28,9 +29,9 @@ chrome.runtime.onMessage.addListener(
 
           const result = await engine.recognize(cropped);
           const text = result.data.text.trim();
+          const confidence = result.data.confidence;
 
-          console.log('OCR SUCCESS:');
-          console.log(text);
+          console.log(`OCR SUCCESS [confidence: ${confidence}%]:\n`, text);
         } catch (err) {
           console.error('[Offscreen] Error:', err);
           sendResponse({ status: 'error', message: (err as Error).message });
@@ -48,7 +49,7 @@ async function cropImage(
 ): Promise<string> {
   const img = new Image();
 
-  // wait for image to load
+  // wait for image to load from dataUrl
   await new Promise((resolve, reject) => {
     img.onload = resolve;
     img.onerror = reject;
@@ -66,31 +67,32 @@ async function cropImage(
   canvas.height = rect.height;
 
   ctx.drawImage(
-    img,
+    img, // source image
+    // 1-4: what to copy
     rect.x,
     rect.y,
     rect.width,
     rect.height,
+    // where & how to draw it
     0,
     0,
     rect.width,
     rect.height
   );
 
-  return canvas.toDataURL('image/png');
+  return canvas.toDataURL(OCR.CROP_MIME);
 }
 
 async function getWorker(): Promise<Tesseract.Worker> {
   if (worker) return worker;
 
-  worker = await Tesseract.createWorker('eng', 1, {
+  worker = await Tesseract.createWorker(OCR.LANG, OCR.OEM, {
     workerBlobURL: false,
-    workerPath: 'worker.min.js',
-    corePath: 'tesseract-core-simd-lstm.wasm.js',
-    langPath: 'https://tessdata.projectnaptha.com/4.0.0',
-    cacheMethod: 'none',
+    workerPath: FILES.OCR_WORKER,
+    corePath: FILES.OCR_CORE,
+    cacheMethod: OCR.CACHE_METHOD,
     logger: (m) => {
-      if (m.status === 'recognizing text')
+      if (m.status === OCR.PROGRESS_STATUS)
         console.log(`[OCR] ${Math.floor(m.progress * 100)}%`);
     },
   });

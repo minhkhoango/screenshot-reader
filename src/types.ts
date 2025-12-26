@@ -40,3 +40,7 @@ export interface MessageResponse {
   message?: string;
   data?: SelectionRect;
 }
+
+export interface SessionStorage {
+  capturedImage: string;
+}
