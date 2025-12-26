@@ -1,11 +1,16 @@
 import { FILES, STORAGE_KEYS, OCR } from './constants';
 import { ExtensionAction } from './types';
-import type { ExtensionMessage, MessageResponse, SessionStorage } from './types';
+import type {
+  ExtensionMessage,
+  MessageResponse,
+  SessionStorage,
+} from './types';
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id || !tab.url) return;
   if (tab.url.startsWith('chrome://')) {
     console.log('Protected site, backup method needed');
+    // REMEMEMBER TO COME BACK TO THIS
     return;
   }
 

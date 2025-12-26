@@ -1,10 +1,6 @@
-import { FILES, OCR } from './constants';
+import { OCR } from './constants';
 import { ExtensionAction } from './types';
 import type { ExtensionMessage, MessageResponse, SelectionRect } from './types';
-import Tesseract from 'tesseract.js';
-
-// Initialize worker once
-let worker: Tesseract.Worker | null = null;
 
 chrome.runtime.onMessage.addListener(
   async (
@@ -24,14 +20,7 @@ chrome.runtime.onMessage.addListener(
         );
 
         try {
-          const cropped = await cropImage(imageDataUrl, rect);
-          const engine = await getWorker();
-
-          const result = await engine.recognize(cropped);
-          const text = result.data.text.trim();
-          const confidence = result.data.confidence;
-
-          console.log(`OCR SUCCESS [confidence: ${confidence}%]:\n`, text);
+          // TO DO LIST HERE
         } catch (err) {
           console.error('[Offscreen] Error:', err);
           sendResponse({ status: 'error', message: (err as Error).message });
@@ -43,6 +32,7 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
+// Previous cropImage from tesseract engine, useful?
 async function cropImage(
   dataUrl: string,
   rect: SelectionRect
@@ -81,21 +71,4 @@ async function cropImage(
   );
 
   return canvas.toDataURL(OCR.CROP_MIME);
-}
-
-async function getWorker(): Promise<Tesseract.Worker> {
-  if (worker) return worker;
-
-  worker = await Tesseract.createWorker(OCR.LANG, OCR.OEM, {
-    workerBlobURL: false,
-    workerPath: FILES.OCR_WORKER,
-    corePath: FILES.OCR_CORE,
-    cacheMethod: OCR.CACHE_METHOD,
-    logger: (m) => {
-      if (m.status === OCR.PROGRESS_STATUS)
-        console.log(`[OCR] ${Math.floor(m.progress * 100)}%`);
-    },
-  });
-
-  return worker;
 }

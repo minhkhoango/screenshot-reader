@@ -21,8 +21,6 @@ export const CONFIG = {
 export const FILES = {
   CONTENT_SCRIPT: 'content.js',
   OFFSCREEN_HTML: 'offscreen.html',
-  OCR_WORKER: 'tesseract_engine/worker.min.js',
-  OCR_CORE: 'tesseract_engine/tesseract-core-simd-lstm.wasm.js',
 } as const;
 
 export const STORAGE_KEYS = {
@@ -33,11 +31,7 @@ export const STORAGE_KEYS = {
 export const OCR = {
   CAPTURE_FORMAT: 'png',
   CROP_MIME: 'image/png',
-  LANG: 'eng',
-  OEM: 1,
   JUSTIFICATION: 'Processing screenshot image data for OCR',
-  CACHE_METHOD: 'none',
-  PROGRESS_STATUS: 'recognizing text',
 } as const;
 
 // UI control flags
