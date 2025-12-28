@@ -1,6 +1,6 @@
 import { FILES, OCR } from './constants';
 import { ExtensionAction } from './types';
-import type { ExtensionMessage, MessageResponse, SelectionRect } from './types';
+import type { ExtensionMessage, MessageResponse, SelectionRect, CropReadyPayload } from './types';
 import Tesseract from 'tesseract.js';
 
 // Initialize worker once
@@ -32,6 +32,12 @@ async function runTesseractOcr(
   rect: SelectionRect,
   sendResponse: (response: MessageResponse) => void
 ): Promise<void> {
+  // Calculate cursor position from selection rect (bottom-right corner)
+  const cursorPosition = {
+    x: rect.x + rect.width,
+    y: rect.y + rect.height,
+  };
+
   try {
     console.log(`[Offscreen] Processing ${rect.width}x${rect.height} region`);
 
@@ -49,6 +55,16 @@ async function runTesseractOcr(
       });
       return;
     }
+
+    // Send CROP_READY message to background (which will forward to content script)
+    const cropReadyPayload: CropReadyPayload = {
+      croppedImageUrl: cropped,
+      cursorPosition,
+    };
+    chrome.runtime.sendMessage<ExtensionMessage>({
+      action: ExtensionAction.CROP_READY,
+      payload: cropReadyPayload,
+    });
 
     // Initialize or reuse Tesseract worker
     let engine: Tesseract.Worker;
@@ -144,10 +160,6 @@ async function getWorker(): Promise<Tesseract.Worker> {
     workerPath: FILES.OCR_WORKER,
     corePath: FILES.OCR_CORE,
     cacheMethod: OCR.CACHE_METHOD,
-    logger: (m) => {
-      if (m.status === OCR.PROGRESS_STATUS)
-        console.log(`[OCR] ${Math.floor(m.progress * 100)}%`);
-    },
   });
 
   return worker;

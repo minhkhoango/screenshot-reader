@@ -12,7 +12,7 @@ export const COLORS = {
   POINTER_CROSSHAIR: 'crosshair',
 } as const;
 
-// Minimum pixels to trigger a captur
+// Minimum pixels to trigger a capture
 export const CONFIG = {
   MIN_SELECTION_ZX: 5,
   MIN_SELECTION_ZY: 5,
@@ -65,15 +65,19 @@ export const ICONS = {
     <circle cx="12" cy="12" r="3"/>
     <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
   </svg>`,
+  spinner: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+  </svg>`,
 };
 
 // Floating Island defaults
 export const ISLAND = {
-  TEXT_MAXLENGTH: 25,
+  TEXT_MAXLENGTH_COLLAPSED: 25,
+  TEXT_MAXLENGTH_EXPANDED: 100,
   WIDTH_COLLAPSED: 280,
   WIDTH_EXPANDED: 500,
   HEIGHT_COLLAPSED: 56,
-  HEIGHT_EXPANDED: 500,
+  HEIGHT_EXPANDED: 200,
   IMAGE_SIZE: 40,
   PADDING: 8,
   DRAG_THRESHOLD: 3,
@@ -83,7 +87,7 @@ export const ISLAND = {
 export const ISLAND_STYLES = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 .island{position:fixed;z-index:${UI.Z_INDEX_MAX};display:block;padding:${ISLAND.PADDING}px ${ISLAND.PADDING}px ${ISLAND.PADDING}px;min-width:${ISLAND.WIDTH_COLLAPSED}px;max-width:${ISLAND.WIDTH_EXPANDED}px;min-height:${ISLAND.HEIGHT_COLLAPSED}px;height:auto;background:rgba(9,9,11,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.4),0 0 0 1px rgba(255,255,255,0.05);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#fafafa;transition:height 0.25s cubic-bezier(0.4,0,0.2,1),max-height 0.25s cubic-bezier(0.4,0,0.2,1),opacity 0.2s ease;overflow:hidden}
-.island.expanded{height:auto;max-height:${ISLAND.HEIGHT_EXPANDED}px;padding:${ISLAND.PADDING}px ${ISLAND.PADDING}px ${ISLAND.PADDING}px}
+.island.expanded{height:auto;padding:${ISLAND.PADDING}px ${ISLAND.PADDING}px ${ISLAND.PADDING}px}
 .island-image{cursor:grab}
 .island-image:active{cursor:grabbing}
 .island-status{cursor:grab}
@@ -98,15 +102,17 @@ export const ISLAND_STYLES = `
 .island-status{font-size:13px;font-weight:500;color:#fafafa;display:flex;align-items:center;gap:6px}
 .island-status.success{color:#4ade80}
 .island-status.error{color:#f87171}
-.island-preview{font-size:12px;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;cursor:pointer}
+.island-preview{font-size:12px;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:400px;cursor:pointer}
 .island-preview:hover{color:#d4d4d8}
-.island-textarea{width:100%;height:auto;min-height:200px;max-height:${ISLAND.HEIGHT_EXPANDED}px;margin-top:${ISLAND.PADDING}px;padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fafafa;font-size:13px;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;line-height:1.5;resize:vertical;outline:none;transition:border-color 0.15s ease}
+.island-textarea{width:100%;height:auto;min-height:${ISLAND.HEIGHT_EXPANDED}px;max-height:500px;margin-top:${ISLAND.PADDING}px;padding:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fafafa;font-size:13px;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;line-height:1.5;resize:vertical;outline:none;transition:border-color 0.15s ease}
 .island-textarea:focus{border-color:rgba(255,255,255,0.25)}
 .island-actions{display:flex;align-items:center;gap:4px}
 .island-btn{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;background:transparent;border:none;border-radius:10px;cursor:pointer;color:#a1a1aa;transition:background 0.15s ease,color 0.15s ease}
 .island-btn:hover{background:rgba(255,255,255,0.1);color:#fafafa}
 .island-btn.success{color:#4ade80}
 .island-btn svg{width:18px;height:18px}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.island-btn.loading svg{animation:spin 1s linear infinite}
 .progress-ring{position:absolute;inset:0;transform:rotate(-90deg)}
 .progress-ring circle{fill:none;stroke-width:2;stroke-linecap:round}
 .progress-ring .bg{stroke:rgba(255,255,255,0.1)}

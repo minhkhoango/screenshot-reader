@@ -24,6 +24,7 @@ export const ExtensionAction = {
   PERFORM_OCR: 'PERFORM_OCR',
   OCR_RESULT: 'OCR_RESULT',
   OCR_PROGRESS: 'OCR_PROGRESS',
+  CROP_READY: 'CROP_READY',
 } as const;
 
 export type ExtensionAction =
@@ -44,6 +45,12 @@ export interface OcrProgressPayload {
   status: string;
 }
 
+/** Payload sent when crop is ready, before OCR starts */
+export interface CropReadyPayload {
+  croppedImageUrl: string;
+  cursorPosition: Point;
+}
+
 export type ExtensionMessage =
   | { action: typeof ExtensionAction.ACTIVATE_OVERLAY }
   | { action: typeof ExtensionAction.CAPTURE_SUCCESS; payload: SelectionRect }
@@ -57,7 +64,8 @@ export type ExtensionMessage =
   | {
       action: typeof ExtensionAction.OCR_PROGRESS;
       payload: OcrProgressPayload;
-    };
+    }
+  | { action: typeof ExtensionAction.CROP_READY; payload: CropReadyPayload };
 
 export interface MessageResponse {
   status: 'ok' | 'error';

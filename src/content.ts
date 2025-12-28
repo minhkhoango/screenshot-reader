@@ -7,6 +7,7 @@ import type {
   IslandState,
   IslandSettings,
   OcrResultPayload,
+  CropReadyPayload,
 } from './types';
 import {
   OVERLAY_ID,
@@ -46,6 +47,11 @@ chrome.runtime.onMessage.addListener(
         sendResponse({ status: 'ok' });
         break;
 
+      case ExtensionAction.CROP_READY:
+        handleCropReady(message.payload);
+        sendResponse({ status: 'ok' });
+        break;
+
       case ExtensionAction.OCR_RESULT:
         handleOcrResult(message.payload);
         sendResponse({ status: 'ok' });
@@ -55,11 +61,29 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
-function handleOcrResult(payload: OcrResultPayload): void {
+function handleCropReady(payload: CropReadyPayload): void {
   if (activeIsland) activeIsland.destroy();
 
-  activeIsland = new FloatingIsland(payload);
+  activeIsland = new FloatingIsland(
+    payload.cursorPosition,
+    payload.croppedImageUrl
+  );
   activeIsland.mount();
+}
+
+function handleOcrResult(payload: OcrResultPayload): void {
+  if (activeIsland) {
+    // Update existing island with result (preserves position/drag state)
+    activeIsland.updateWithResult(payload);
+  } else {
+    // Fallback: create island if somehow missing
+    activeIsland = new FloatingIsland(
+      payload.cursorPosition,
+      payload.croppedImageUrl
+    );
+    activeIsland.mount();
+    activeIsland.updateWithResult(payload);
+  }
 }
 
 // Screesnshot selection box
@@ -204,6 +228,7 @@ class FloatingIsland {
   private position: Point;
   private isExpanded = false;
   private hasCopied = false;
+  private hasAutocopied = false; // Track if autocopy has been triggered
 
   // Drag state
   private isDragging = false;
@@ -215,12 +240,14 @@ class FloatingIsland {
   private previewEl!: HTMLDivElement;
   private copyBtn!: HTMLButtonElement;
   private textareaEl!: HTMLTextAreaElement;
+  private imageEl!: HTMLImageElement;
 
-  constructor(payload: OcrResultPayload) {
-    this.state = payload.success ? 'success' : 'error';
-    this.text = payload.text;
-    this.imageUrl = payload.croppedImageUrl;
-    this.position = this.calculatePosition(payload.cursorPosition);
+  constructor(cursorPosition: Point, imageUrl: string = '') {
+    // Initialize in loading state
+    this.state = 'loading';
+    this.text = '';
+    this.imageUrl = imageUrl;
+    this.position = this.calculatePosition(cursorPosition);
 
     this.host = document.createElement('div');
     this.host.id = ISLAND_ID;
@@ -229,10 +256,73 @@ class FloatingIsland {
 
     this.loadSettings().then(() => {
       this.build();
-      if (this.state === 'success' && this.settings.autoCopy) {
-        this.copyToClipboard();
-      }
     });
+  }
+
+  /** Update island with OCR result, transitioning from loading to success/error */
+  public updateWithResult(payload: OcrResultPayload): void {
+    this.state = payload.success ? 'success' : 'error';
+    this.text = payload.text;
+    if (payload.croppedImageUrl) {
+      this.imageUrl = payload.croppedImageUrl;
+    }
+
+    // Update image if present
+    if (this.imageEl && this.imageUrl) {
+      this.imageEl.src = this.imageUrl;
+    }
+
+    // Update status text and class
+    if (this.statusEl) {
+      const statusText =
+        this.state === 'success'
+          ? this.settings.autoCopy
+            ? 'Copied!'
+            : 'Extracted:'
+          : 'Error';
+      this.statusEl.textContent = statusText;
+      this.statusEl.className = `island-status ${
+        this.state === 'success' ? 'success' : 'error'
+      }`;
+    }
+
+    // Update preview text
+    if (this.previewEl) {
+      this.previewEl.textContent =
+        this.truncateText(this.text, ISLAND.TEXT_MAXLENGTH_COLLAPSED) ||
+        'No text detected';
+    }
+
+    // Update textarea
+    if (this.textareaEl) {
+      this.textareaEl.value = this.text;
+    }
+
+    // Update copy button: remove spinner, show clipboard icon, re-enable button
+    if (this.copyBtn) {
+      this.copyBtn.classList.remove('loading');
+      this.copyBtn.disabled = false;
+      this.copyBtn.title = 'Copy to clipboard';
+      const svg = this.copyBtn.querySelector('svg');
+      if (svg) {
+        svg.outerHTML = ICONS.clipboard;
+      }
+    }
+
+    // Trigger autocopy on first success
+    if (
+      this.state === 'success' &&
+      this.settings.autoCopy &&
+      !this.hasAutocopied
+    ) {
+      this.hasAutocopied = true;
+      this.copyToClipboard();
+    }
+
+    // Wiggle on error
+    if (this.state === 'error') {
+      this.wiggle();
+    }
   }
 
   private async loadSettings(): Promise<void> {
@@ -267,12 +357,12 @@ class FloatingIsland {
     let x = cursor.x;
     let y = cursor.y;
 
-    // Boundary checks
+    // Boundary checks - keep widget within viewport
     if (x + width > window.innerWidth) {
       x = window.innerWidth - width;
     }
     if (y + height > window.innerHeight) {
-      y = cursor.y - height;
+      y = window.innerHeight - height;
     }
 
     return { x, y };
@@ -328,6 +418,7 @@ class FloatingIsland {
     this.statusEl = this.container.querySelector('.island-status')!;
     this.previewEl = this.container.querySelector('.island-preview')!;
     this.copyBtn = this.container.querySelector('.copy-btn')!;
+    this.imageEl = this.container.querySelector('.island-image')!;
 
     // Bind events
     this.bindEvents();
@@ -337,14 +428,31 @@ class FloatingIsland {
   }
 
   private renderCollapsed(): string {
-    const truncatedText = this.truncateText(this.text);
-    const statusText =
-      this.state === 'success'
-        ? this.settings.autoCopy
-          ? 'Copied!'
-          : 'Extracted:'
-        : 'Error';
-    const statusClass = this.state === 'success' ? 'success' : 'error';
+    const truncatedText = this.truncateText(
+      this.text,
+      ISLAND.TEXT_MAXLENGTH_COLLAPSED
+    );
+    const isLoading = this.state === 'loading';
+
+    // Status text and class based on state
+    let statusText: string;
+    let statusClass: string;
+    if (isLoading) {
+      statusText = 'Processing…';
+      statusClass = '';
+    } else if (this.state === 'success') {
+      statusText = this.settings.autoCopy ? 'Copied!' : 'Extracted:';
+      statusClass = 'success';
+    } else {
+      statusText = 'Error';
+      statusClass = 'error';
+    }
+
+    // Show spinner icon during loading, clipboard otherwise
+    const actionIcon = isLoading ? ICONS.spinner : ICONS.clipboard;
+    const buttonClass = isLoading
+      ? 'island-btn copy-btn loading'
+      : 'island-btn copy-btn';
 
     return `
       <div class="island-row">
@@ -352,16 +460,22 @@ class FloatingIsland {
         <div class="island-content">
           <span class="island-status ${statusClass}">${statusText}</span>
           <div class="island-preview" title="Click to expand">${
-            truncatedText || 'No text detected'
+            isLoading ? '' : truncatedText || 'No text detected'
           }</div>
         </div>
         <div class="island-actions">
-          <button class="island-btn copy-btn" title="Copy to clipboard">
-            <svg class="progress-ring" viewBox="0 0 36 36">
+          <button class="${buttonClass}" title="${
+      isLoading ? 'Processing...' : 'Copy to clipboard'
+    }" ${isLoading ? 'disabled' : ''}>
+            ${
+              isLoading
+                ? ''
+                : `<svg class="progress-ring" viewBox="0 0 36 36">
               <circle class="bg" cx="18" cy="18" r="15"/>
               <circle class="fg" cx="18" cy="18" r="15"/>
-            </svg>
-            ${ICONS.clipboard}
+            </svg>`
+            }
+            ${actionIcon}
           </button>
           <button class="island-btn settings-btn" title="Settings">${
             ICONS.settings
@@ -482,6 +596,9 @@ class FloatingIsland {
   }
 
   private toggleExpand(): void {
+    // Don't allow expansion during loading
+    if (this.state === 'loading') return;
+
     this.isExpanded = !this.isExpanded;
     this.container.classList.toggle('expanded', this.isExpanded);
 
@@ -489,15 +606,38 @@ class FloatingIsland {
       this.textareaEl.style.display = this.isExpanded ? 'block' : 'none';
       if (this.isExpanded) {
         this.textareaEl.focus();
+
+        // Calculate width difference and shift position left
+        const widthDiff = ISLAND.WIDTH_EXPANDED - ISLAND.WIDTH_COLLAPSED;
+        this.position.x -= widthDiff;
+
         this.container.style.width = `${ISLAND.WIDTH_EXPANDED}px`;
+
+        // Update preview to show more text when expanded
+        if (this.previewEl) {
+          this.previewEl.textContent =
+            this.truncateText(this.text, ISLAND.TEXT_MAXLENGTH_EXPANDED) ||
+            'No text detected';
+        }
 
         // Reposition to ensure island stays within viewport
         this.position = this.constrainToViewport(this.position);
         this.container.style.left = `${this.position.x}px`;
         this.container.style.top = `${this.position.y}px`;
       } else {
+        // Calculate width difference and shift position right
+        const widthDiff = ISLAND.WIDTH_EXPANDED - ISLAND.WIDTH_COLLAPSED;
+        this.position.x += widthDiff;
+
         // Reset to minimum width when collapsed
         this.container.style.width = `${ISLAND.WIDTH_COLLAPSED}px`;
+
+        // Restore preview to shorter text when collapsed
+        if (this.previewEl) {
+          this.previewEl.textContent =
+            this.truncateText(this.text, ISLAND.TEXT_MAXLENGTH_COLLAPSED) ||
+            'No text detected';
+        }
 
         // Reposition after width change
         this.position = this.constrainToViewport(this.position);
@@ -520,6 +660,9 @@ class FloatingIsland {
   }
 
   private async copyToClipboard(): Promise<void> {
+    // Don't copy during loading state
+    if (this.state === 'loading') return;
+
     if (!this.text) {
       this.wiggle();
       return;
@@ -566,11 +709,11 @@ class FloatingIsland {
     setTimeout(() => this.container.classList.remove('wiggle'), 150);
   }
 
-  private truncateText(text: string): string {
+  private truncateText(text: string, maxlength: number): string {
     if (!text) return '';
     const cleaned = text.replace(/\s+/g, ' ').trim();
-    return cleaned.length > ISLAND.TEXT_MAXLENGTH
-      ? cleaned.slice(0, ISLAND.TEXT_MAXLENGTH) + '...'
+    return cleaned.length > maxlength
+      ? cleaned.slice(0, maxlength) + '...'
       : cleaned;
   }
 

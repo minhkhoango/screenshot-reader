@@ -6,7 +6,11 @@ import type {
   SessionStorage,
   OcrResultPayload,
   SelectionRect,
+  CropReadyPayload,
 } from './types';
+
+// Track the tab that initiated OCR (for forwarding CROP_READY)
+let activeOcrTabId: number | undefined;
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id || !tab.url) return;
@@ -53,6 +57,13 @@ chrome.runtime.onMessage.addListener(
         await handleCaptureSuccess(message.payload, sender.tab?.id);
         break;
       }
+      case ExtensionAction.CROP_READY: {
+        // Forward CROP_READY from offscreen to content script
+        if (activeOcrTabId) {
+          sendCropReadyToTab(activeOcrTabId, message.payload);
+        }
+        break;
+      }
     }
     return true; // keep channel open
   }
@@ -63,6 +74,9 @@ async function handleCaptureSuccess(
   tabId?: number
 ): Promise<void> {
   console.log('Captured selection:', payload, 'tabId:', tabId);
+
+  // Track active tab for CROP_READY forwarding
+  activeOcrTabId = tabId;
 
   const storage = await chrome.storage.session.get<SessionStorage>(
     STORAGE_KEYS.CAPTURED_IMAGE
@@ -76,7 +90,10 @@ async function handleCaptureSuccess(
       text: 'No screenshot found',
       confidence: 0,
       croppedImageUrl: '',
-      cursorPosition: { x: payload.x + payload.width, y: payload.y },
+      cursorPosition: {
+        x: payload.x + payload.width,
+        y: payload.y + payload.height,
+      },
     });
     return;
   }
@@ -90,7 +107,10 @@ async function handleCaptureSuccess(
         text: 'OCR engine not ready',
         confidence: 0,
         croppedImageUrl: '',
-        cursorPosition: { x: payload.x + payload.width, y: payload.y },
+        cursorPosition: {
+          x: payload.x + payload.width,
+          y: payload.y + payload.height,
+        },
       });
       return;
     }
@@ -114,7 +134,10 @@ async function handleCaptureSuccess(
         text: 'No OCR response from offscreen',
         confidence: 0,
         croppedImageUrl: '',
-        cursorPosition: { x: payload.x + payload.width, y: payload.y },
+        cursorPosition: {
+          x: payload.x + payload.width,
+          y: payload.y + payload.height,
+        },
       });
       return;
     }
@@ -125,7 +148,10 @@ async function handleCaptureSuccess(
       text: ocrResult.message || '',
       confidence: ocrResult.confidence || 0,
       croppedImageUrl: ocrResult.croppedImageUrl || '',
-      cursorPosition: { x: payload.x + payload.width, y: payload.y },
+      cursorPosition: {
+        x: payload.x + payload.width,
+        y: payload.y + payload.height,
+      },
     };
 
     sendOcrResultToTab(tabId, resultPayload);
@@ -136,7 +162,10 @@ async function handleCaptureSuccess(
       text: (err as Error).message,
       confidence: 0,
       croppedImageUrl: '',
-      cursorPosition: { x: payload.x + payload.width, y: payload.y },
+      cursorPosition: {
+        x: payload.x + payload.width,
+        y: payload.y + payload.height,
+      },
     });
   }
 }
@@ -176,6 +205,21 @@ async function sendOcrResultToTab(
     });
   } catch (err) {
     console.error('Failed to send OCR result to tab:', err);
+  }
+}
+
+async function sendCropReadyToTab(
+  tabId: number | undefined,
+  payload: CropReadyPayload
+): Promise<void> {
+  if (!tabId) return;
+  try {
+    await chrome.tabs.sendMessage<ExtensionMessage>(tabId, {
+      action: ExtensionAction.CROP_READY,
+      payload,
+    });
+  } catch (err) {
+    console.error('Failed to send CROP_READY to tab:', err);
   }
 }
 
