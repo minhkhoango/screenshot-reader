@@ -108,21 +108,29 @@ async function cropImage(
     throw new Error('Canvas context failed');
   }
 
-  canvas.width = rect.width;
-  canvas.height = rect.height;
+  // Scale coordinates by devicePixelRatio since the captured screenshot
+  // is at native resolution, but selection coordinates are in CSS pixels
+  const dpr = rect.devicePixelRatio || 1;
+  const scaledX = rect.x * dpr;
+  const scaledY = rect.y * dpr;
+  const scaledWidth = rect.width * dpr;
+  const scaledHeight = rect.height * dpr;
+
+  canvas.width = scaledWidth;
+  canvas.height = scaledHeight;
 
   ctx.drawImage(
     img, // source image
-    // 1-4: what to copy
-    rect.x,
-    rect.y,
-    rect.width,
-    rect.height,
-    // where & how to draw it
+    // 1-4: what to copy (in native/scaled pixels)
+    scaledX,
+    scaledY,
+    scaledWidth,
+    scaledHeight,
+    // where & how to draw it (also in scaled pixels)
     0,
     0,
-    rect.width,
-    rect.height
+    scaledWidth,
+    scaledHeight
   );
 
   return canvas.toDataURL(OCR.CROP_MIME);

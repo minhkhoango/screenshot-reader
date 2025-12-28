@@ -185,11 +185,12 @@ class GhostOverlay {
       y: Math.min(this.startPos.y, this.currentPos.y),
       width: Math.abs(this.startPos.x - this.currentPos.x),
       height: Math.abs(this.startPos.y - this.currentPos.y),
+      devicePixelRatio: window.devicePixelRatio || 1,
     };
   }
 }
 
-// // FloatingIsland - Result Display UI
+// FloatingIsland - Result Display UI
 class FloatingIsland {
   private host: HTMLDivElement;
   private shadow: ShadowRoot;
@@ -284,6 +285,7 @@ class FloatingIsland {
     this.container.className = 'island entering';
     this.container.style.left = `${this.position.x}px`;
     this.container.style.top = `${this.position.y}px`;
+    this.container.style.width = `${ISLAND.WIDTH}px`;
 
     this.container.innerHTML = this.renderCollapsed();
     this.shadow.appendChild(this.container);
@@ -301,7 +303,7 @@ class FloatingIsland {
   }
 
   private renderCollapsed(): string {
-    const truncatedText = this.truncateText(this.text, 30);
+    const truncatedText = this.truncateText(this.text, 18);
     const statusText =
       this.state === 'success'
         ? this.settings.autoCopy
@@ -330,7 +332,6 @@ class FloatingIsland {
           <button class="island-btn settings-btn" title="Settings">${
             ICONS.settings
           }</button>
-          <button class="island-btn close-btn" title="Close">${ICONS.x}</button>
         </div>
       </div>
       <textarea class="island-textarea" style="display:none">${this.escapeHtml(
@@ -342,12 +343,6 @@ class FloatingIsland {
           <div class="toggle ${
             this.settings.autoCopy ? 'active' : ''
           }" data-setting="autoCopy"></div>
-        </div>
-        <div class="setting-row">
-          <span>Auto-dismiss after copy</span>
-          <div class="toggle ${
-            this.settings.autoDismiss ? 'active' : ''
-          }" data-setting="autoDismiss"></div>
         </div>
       </div>
     `;
@@ -363,10 +358,6 @@ class FloatingIsland {
     // Settings toggle
     const settingsBtn = this.container.querySelector('.settings-btn');
     settingsBtn?.addEventListener('click', () => this.toggleSettings());
-
-    // Close button
-    const closeBtn = this.container.querySelector('.close-btn');
-    closeBtn?.addEventListener('click', () => this.destroy());
 
     // Toggle switches
     const toggles = this.container.querySelectorAll('.toggle');
@@ -401,7 +392,7 @@ class FloatingIsland {
     const toggle = e.target as HTMLElement;
     const setting = toggle.dataset.setting as keyof IslandSettings;
 
-    if (setting === 'autoCopy' || setting === 'autoDismiss') {
+    if (setting === 'autoCopy') {
       this.settings[setting] = !this.settings[setting];
       toggle.classList.toggle('active', this.settings[setting]);
       this.saveSettings();
@@ -416,7 +407,6 @@ class FloatingIsland {
       this.textareaEl.style.display = this.isExpanded ? 'block' : 'none';
       if (this.isExpanded) {
         this.textareaEl.focus();
-        this.textareaEl.select();
       }
     }
   }
@@ -444,10 +434,6 @@ class FloatingIsland {
       this.hasCopied = true;
       this.updateCopyButton(true);
       this.updateStatus('Copied!', true);
-
-      if (this.settings.autoDismiss) {
-        setTimeout(() => this.destroy(), this.settings.autoDismissDelay);
-      }
     } catch (err) {
       console.error('Clipboard write failed:', err);
       this.wiggle();

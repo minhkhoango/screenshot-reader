@@ -5,6 +5,7 @@ import type {
   MessageResponse,
   SessionStorage,
   OcrResultPayload,
+  SelectionRect,
 } from './types';
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -58,7 +59,7 @@ chrome.runtime.onMessage.addListener(
 );
 
 async function handleCaptureSuccess(
-  payload: { x: number; y: number; width: number; height: number },
+  payload: SelectionRect,
   tabId?: number
 ): Promise<void> {
   console.log('Captured selection:', payload, 'tabId:', tabId);

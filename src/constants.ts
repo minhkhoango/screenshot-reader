@@ -65,10 +65,6 @@ export const ICONS = {
     <circle cx="12" cy="12" r="3"/>
     <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
   </svg>`,
-  x: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <line x1="18" y1="6" x2="6" y2="18"/>
-    <line x1="6" y1="6" x2="18" y2="18"/>
-  </svg>`,
 };
 
 // Floating Island defaults
@@ -84,9 +80,9 @@ export const ISLAND = {
 // Floating Island CSS (semi-minified for readability)
 export const ISLAND_STYLES = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-.island{position:fixed;z-index:2147483647;display:flex;align-items:center;gap:12px;padding:8px 12px;min-width:280px;max-width:400px;height:56px;background:rgba(9,9,11,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.4),0 0 0 1px rgba(255,255,255,0.05);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#fafafa;transition:height 0.25s cubic-bezier(0.4,0,0.2,1),max-height 0.25s cubic-bezier(0.4,0,0.2,1),opacity 0.2s ease;overflow:hidden}
-.island.expanded{height:auto;max-height:300px;flex-direction:column;align-items:stretch;padding:12px}
-.island.expanded .island-row{display:flex;align-items:center;gap:12px;width:100%}
+.island{position:fixed;z-index:2147483647;display:block;padding:8px 8px 8px;min-width:280px;max-width:400px;min-height:42px;height:auto;background:rgba(9,9,11,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.4),0 0 0 1px rgba(255,255,255,0.05);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#fafafa;transition:height 0.25s cubic-bezier(0.4,0,0.2,1),max-height 0.25s cubic-bezier(0.4,0,0.2,1),opacity 0.2s ease;overflow:hidden}
+.island.expanded{height:auto;max-height:300px;padding:8px 8px 8px}
+.island-row{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;width:100%}
 @keyframes wiggle{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
 .island.wiggle{animation:wiggle 150ms ease-in-out}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}
@@ -125,6 +121,4 @@ export const ISLAND_STYLES = `
 // Default settings
 export const DEFAULT_SETTINGS = {
   autoCopy: true,
-  autoDismiss: false,
-  autoDismissDelay: 3000,
 } as const;

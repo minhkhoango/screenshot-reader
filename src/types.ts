@@ -12,7 +12,9 @@ export interface Dimension {
   height: number;
 }
 
-export interface SelectionRect extends Point, Dimension {}
+export interface SelectionRect extends Point, Dimension {
+  devicePixelRatio: number;
+}
 
 export const ExtensionAction = {
   ACTIVATE_OVERLAY: 'ACTIVATE_OVERLAY',
@@ -72,8 +74,6 @@ export interface SessionStorage {
 /** Settings stored in chrome.storage.local */
 export interface IslandSettings {
   autoCopy: boolean;
-  autoDismiss: boolean;
-  autoDismissDelay: number;
 }
 
 export type IslandState = 'loading' | 'success' | 'error';
