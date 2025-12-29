@@ -1,6 +1,11 @@
-import { FILES, OCR } from './constants';
+import { FILES_PATH, OCR_CONFIG } from './constants';
 import { ExtensionAction } from './types';
-import type { ExtensionMessage, MessageResponse, SelectionRect, CropReadyPayload } from './types';
+import type {
+  ExtensionMessage,
+  MessageResponse,
+  SelectionRect,
+  CropReadyPayload,
+} from './types';
 import Tesseract from 'tesseract.js';
 
 // Initialize worker once
@@ -149,17 +154,17 @@ async function cropImage(
     scaledHeight
   );
 
-  return canvas.toDataURL(OCR.CROP_MIME);
+  return canvas.toDataURL(OCR_CONFIG.CROP_MIME);
 }
 
 async function getWorker(): Promise<Tesseract.Worker> {
   if (worker) return worker;
 
-  worker = await Tesseract.createWorker(OCR.LANG, OCR.OEM, {
+  worker = await Tesseract.createWorker(OCR_CONFIG.LANG, OCR_CONFIG.OEM, {
     workerBlobURL: false,
-    workerPath: FILES.OCR_WORKER,
-    corePath: FILES.OCR_CORE,
-    cacheMethod: OCR.CACHE_METHOD,
+    workerPath: FILES_PATH.OCR_WORKER,
+    corePath: FILES_PATH.OCR_CORE,
+    cacheMethod: OCR_CONFIG.CACHE_METHOD,
   });
 
   return worker;

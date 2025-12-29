@@ -1,4 +1,4 @@
-import { FILES, STORAGE_KEYS, OCR } from './constants';
+import { FILES_PATH, STORAGE_KEYS, OCR_CONFIG } from './constants';
 import { ExtensionAction } from './types';
 import type {
   ExtensionMessage,
@@ -22,7 +22,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   try {
     // Capture a full screenshot
     const dataUrl: string = await chrome.tabs.captureVisibleTab({
-      format: OCR.CAPTURE_FORMAT,
+      format: OCR_CONFIG.CAPTURE_FORMAT,
     });
     await chrome.storage.session.set<SessionStorage>({
       [STORAGE_KEYS.CAPTURED_IMAGE]: dataUrl,
@@ -39,7 +39,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     }
 
     // warm up the offscreen engine
-    await setupOffscreenDocument(FILES.OFFSCREEN_HTML);
+    await setupOffscreenDocument(FILES_PATH.OFFSCREEN_HTML);
   } catch (err) {
     console.error('Background workflow error:', err);
   }
@@ -99,7 +99,9 @@ async function handleCaptureSuccess(
   }
 
   try {
-    const isOffscreenReady = await ensureOffscreenAlive(FILES.OFFSCREEN_HTML);
+    const isOffscreenReady = await ensureOffscreenAlive(
+      FILES_PATH.OFFSCREEN_HTML
+    );
     if (!isOffscreenReady) {
       console.error('Offscreen not reachable, aborting OCR');
       sendOcrResultToTab(tabId, {
@@ -231,7 +233,7 @@ async function ensureContentScriptLoaded(tabId: number): Promise<void> {
   } catch {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: [FILES.CONTENT_SCRIPT],
+      files: [FILES_PATH.CONTENT_SCRIPT],
     });
   }
 }
@@ -270,7 +272,7 @@ async function setupOffscreenDocument(path: string): Promise<void> {
   creatingOffscreenPromise = chrome.offscreen.createDocument({
     url: path,
     reasons: [chrome.offscreen.Reason.BLOBS],
-    justification: OCR.JUSTIFICATION,
+    justification: OCR_CONFIG.JUSTIFICATION,
   });
 
   await creatingOffscreenPromise;

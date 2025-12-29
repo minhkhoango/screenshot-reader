@@ -1,0 +1,132 @@
+import { IDS, CONFIG, OVERLAY_CSS_VARS } from './constants';
+import { ExtensionAction } from './types';
+import type { ExtensionMessage, SelectionRect, Point } from './types';
+
+export class GhostOverlay {
+  private host: HTMLDivElement;
+  private shadow: ShadowRoot;
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D | null = null;
+
+  private isDragging = false;
+  private startPos: Point = { x: 0, y: 0 };
+  private currentPos: Point = { x: 0, y: 0 };
+
+  constructor() {
+    this.host = document.createElement('div');
+    this.host.id = IDS.OVERLAY;
+    this.shadow = this.host.attachShadow({ mode: 'closed' });
+    this.canvas = document.createElement('canvas');
+    this.initStructure();
+  }
+
+  private initStructure(): void {
+    Object.assign(this.host.style, {
+      position: 'fixed',
+      top: '0',
+      left: '0',
+      width: '100vw',
+      height: '100vh',
+      zIndex: OVERLAY_CSS_VARS.layout.zIndex,
+      pointerEvents: 'none', // Pass-through
+    });
+
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = window.innerWidth * dpr;
+    this.canvas.height = window.innerHeight * dpr;
+
+    Object.assign(this.canvas.style, {
+      width: '100%',
+      height: '100%',
+      cursor: OVERLAY_CSS_VARS.animation.cursor,
+    });
+
+    this.ctx = this.canvas.getContext('2d');
+    if (this.ctx) this.ctx.scale(dpr, dpr);
+    this.shadow.appendChild(this.canvas);
+  }
+
+  public mount(): void {
+    if (!document.getElementById(IDS.OVERLAY)) {
+      document.body.appendChild(this.host);
+    }
+  }
+
+  public activate(): void {
+    this.host.style.pointerEvents = 'auto';
+    this.canvas.addEventListener('mousedown', this.handleMouseDown);
+    this.canvas.addEventListener('mousemove', this.handleMouseMove);
+    this.canvas.addEventListener('mouseup', this.handleMouseUp);
+    window.addEventListener('keydown', this.handleKeyDown);
+    this.draw();
+  }
+
+  public destroy(): void {
+    this.canvas.removeEventListener('mousedown', this.handleMouseDown);
+    this.canvas.removeEventListener('mousemove', this.handleMouseMove);
+    this.canvas.removeEventListener('mouseup', this.handleMouseUp);
+    window.removeEventListener('keydown', this.handleKeyDown);
+    this.host.remove();
+  }
+
+  private handleMouseDown = (e: MouseEvent): void => {
+    this.isDragging = true;
+    this.startPos = { x: e.clientX, y: e.clientY };
+    this.currentPos = { x: e.clientX, y: e.clientY };
+    e.preventDefault();
+    this.draw();
+  };
+
+  private handleMouseMove = (e: MouseEvent): void => {
+    if (!this.isDragging) return;
+    this.currentPos = { x: e.clientX, y: e.clientY };
+    this.draw();
+  };
+
+  private handleMouseUp = (_e: MouseEvent): void => {
+    this.isDragging = false;
+    const rect = this.getSelectionRect();
+
+    if (
+      rect.width > CONFIG.MIN_SELECTION_ZX &&
+      rect.height > CONFIG.MIN_SELECTION_ZY
+    ) {
+      console.log('Image captured:', rect);
+      chrome.runtime.sendMessage<ExtensionMessage>({
+        action: ExtensionAction.CAPTURE_SUCCESS,
+        payload: rect,
+      });
+    }
+    this.destroy();
+  };
+
+  private handleKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') this.destroy();
+  };
+
+  private draw(): void {
+    if (!this.ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    this.ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
+    this.ctx.fillStyle = OVERLAY_CSS_VARS.colors.bg;
+    this.ctx.fillRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
+
+    if (this.isDragging || this.startPos.x !== 0) {
+      const { x, y, width, height } = this.getSelectionRect();
+      this.ctx.clearRect(x, y, width, height);
+      this.ctx.strokeStyle = OVERLAY_CSS_VARS.colors.stroke;
+      this.ctx.lineWidth = OVERLAY_CSS_VARS.animation.lineWidth;
+      this.ctx.strokeRect(x, y, width, height);
+    }
+  }
+
+  private getSelectionRect(): SelectionRect {
+    return {
+      x: Math.min(this.startPos.x, this.currentPos.x),
+      y: Math.min(this.startPos.y, this.currentPos.y),
+      width: Math.abs(this.startPos.x - this.currentPos.x),
+      height: Math.abs(this.startPos.y - this.currentPos.y),
+      devicePixelRatio: window.devicePixelRatio || 1,
+    };
+  }
+}
