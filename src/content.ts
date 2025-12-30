@@ -1,15 +1,17 @@
 import { ExtensionAction } from './types';
-
 import type {
   ExtensionMessage,
   MessageResponse,
-  Point,
-  SelectionRect,
+  CropReadyPayload,
+  OcrResultPayload,
 } from './types';
+import { GhostOverlay } from './overlay';
+import { FloatingIsland } from './island';
 
-import { OVERLAY_ID, COLORS, CONFIG, UI } from './constants';
-
+// State Management
 let activeOverlay: GhostOverlay | null = null;
+let activeIsland: FloatingIsland | null = null;
+let pendingNotificationMessage: string | null = null;
 
 chrome.runtime.onMessage.addListener(
   (
@@ -19,14 +21,31 @@ chrome.runtime.onMessage.addListener(
   ) => {
     switch (message.action) {
       case ExtensionAction.PING_CONTENT:
+        if (activeIsland) activeIsland.destroy();
         sendResponse({ status: 'ok' });
         break;
 
       case ExtensionAction.ACTIVATE_OVERLAY:
         if (activeOverlay) activeOverlay.destroy();
+        if (activeIsland) activeIsland.destroy();
         activeOverlay = new GhostOverlay();
         activeOverlay.mount();
         activeOverlay.activate();
+        sendResponse({ status: 'ok' });
+        break;
+
+      case ExtensionAction.CROP_READY:
+        handleCropReady(message.payload);
+        sendResponse({ status: 'ok' });
+        break;
+
+      case ExtensionAction.OCR_RESULT:
+        handleOcrResult(message.payload);
+        sendResponse({ status: 'ok' });
+        break;
+
+      case ExtensionAction.SHOW_HINT:
+        pendingNotificationMessage = message.payload.message;
         sendResponse({ status: 'ok' });
         break;
     }
@@ -34,129 +53,32 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
-class GhostOverlay {
-  private host: HTMLDivElement;
-  private shadow: ShadowRoot;
-  private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D | null = null;
+function handleCropReady(payload: CropReadyPayload): void {
+  if (activeIsland) activeIsland.destroy();
 
-  private isDragging: boolean = false;
-  private startPos: Point = { x: 0, y: 0 };
-  private currentPos: Point = { x: 0, y: 0 };
+  // Pass pending notification message to the island
+  const notificationMessage = pendingNotificationMessage || '';
+  pendingNotificationMessage = null;
 
-  constructor() {
-    this.host = document.createElement('div');
-    this.host.id = OVERLAY_ID;
-    this.shadow = this.host.attachShadow({ mode: 'closed' });
-    this.canvas = document.createElement('canvas');
-    this.initStructure();
-  }
+  activeIsland = new FloatingIsland(
+    payload.cursorPosition,
+    payload.croppedImageUrl,
+    notificationMessage
+  );
+  activeIsland.mount();
+}
 
-  private initStructure() {
-    Object.assign(this.host.style, {
-      position: 'fixed',
-      top: '0',
-      left: '0',
-      width: UI.FULL_WIDTH,
-      height: UI.FULL_HEIGHT,
-      zIndex: UI.Z_INDEX_MAX,
-      pointerEvents: UI.POINTER_EVENTS_DISABLED,
-    });
-
-    const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = window.innerWidth * dpr;
-    this.canvas.height = window.innerHeight * dpr;
-    this.canvas.style.width = '100%';
-    this.canvas.style.height = '100%';
-
-    this.ctx = this.canvas.getContext('2d');
-    if (this.ctx) this.ctx.scale(dpr, dpr);
-    this.shadow.appendChild(this.canvas);
-  }
-
-  public mount() {
-    if (!document.getElementById(OVERLAY_ID)) {
-      document.body.appendChild(this.host);
-    }
-  }
-
-  public destroy() {
-    this.canvas.removeEventListener('mousedown', this.handleMouseDown);
-    this.canvas.removeEventListener('mousemove', this.handleMouseMove);
-    this.canvas.removeEventListener('mouseup', this.handleMouseUp);
-    window.removeEventListener('keydown', this.handleKeyDown);
-    this.host.remove();
-  }
-
-  public activate() {
-    this.host.style.pointerEvents = UI.POINTER_EVENTS_ENABLED; // Allow clicks
-    this.host.style.cursor = COLORS.POINTER_CROSSHAIR; // pointer to '+' sign
-
-    this.canvas.addEventListener('mousedown', this.handleMouseDown);
-    this.canvas.addEventListener('mousemove', this.handleMouseMove);
-    this.canvas.addEventListener('mouseup', this.handleMouseUp);
-    window.addEventListener('keydown', this.handleKeyDown);
-    this.draw();
-  }
-
-  private handleMouseDown = (e: MouseEvent) => {
-    this.isDragging = true;
-    this.startPos = { x: e.clientX, y: e.clientY };
-    this.currentPos = { x: e.clientX, y: e.clientY };
-    e.preventDefault(); // stop text selection
-    this.draw();
-  };
-
-  private handleMouseMove = (e: MouseEvent) => {
-    if (!this.isDragging) return;
-    this.currentPos = { x: e.clientX, y: e.clientY };
-    this.draw();
-  };
-
-  private handleMouseUp = (_e: MouseEvent) => {
-    this.isDragging = false;
-    const rect = this.getSelectionRect();
-
-    if (
-      rect.width > CONFIG.MIN_SELECTION_ZX &&
-      rect.height > CONFIG.MIN_SELECTION_ZY
-    ) {
-      console.log('Image captured:', rect);
-      chrome.runtime.sendMessage<ExtensionMessage>({
-        action: ExtensionAction.CAPTURE_SUCCESS,
-        payload: rect,
-      });
-    }
-    this.destroy();
-  };
-
-  private handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === UI.ESCAPE_KEY) this.destroy();
-  };
-
-  private draw() {
-    if (!this.ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    this.ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
-    this.ctx.fillStyle = COLORS.OVERLAY_BG;
-    this.ctx.fillRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
-
-    if (this.isDragging || this.startPos.x !== 0) {
-      // Cut the rectangular hole & polish border
-      const { x, y, width, height } = this.getSelectionRect();
-      this.ctx.clearRect(x, y, width, height);
-      this.ctx.strokeStyle = COLORS.SELECTION_BORDER;
-      this.ctx.lineWidth = UI.CANVAS_LINE_WIDTH;
-      this.ctx.strokeRect(x, y, width, height);
-    }
-  }
-
-  private getSelectionRect(): SelectionRect {
-    return {
-      x: Math.min(this.startPos.x, this.currentPos.x),
-      y: Math.min(this.startPos.y, this.currentPos.y),
-      width: Math.abs(this.startPos.x - this.currentPos.x),
-      height: Math.abs(this.startPos.y - this.currentPos.y),
-    };
+function handleOcrResult(payload: OcrResultPayload): void {
+  if (activeIsland) {
+    // Update existing island with result (preserves position/drag state)
+    activeIsland.updateWithResult(payload);
+  } else {
+    // Fallback: create island if somehow missing
+    activeIsland = new FloatingIsland(
+      payload.cursorPosition,
+      payload.croppedImageUrl
+    );
+    activeIsland.mount();
+    activeIsland.updateWithResult(payload);
   }
 }

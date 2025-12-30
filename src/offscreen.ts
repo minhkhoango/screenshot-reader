@@ -1,13 +1,18 @@
-import { FILES, OCR } from './constants';
+import { FILES_PATH, OCR_CONFIG } from './constants';
 import { ExtensionAction } from './types';
-import type { ExtensionMessage, MessageResponse, SelectionRect } from './types';
+import type {
+  ExtensionMessage,
+  MessageResponse,
+  SelectionRect,
+  CropReadyPayload,
+} from './types';
 import Tesseract from 'tesseract.js';
 
 // Initialize worker once
 let worker: Tesseract.Worker | null = null;
 
 chrome.runtime.onMessage.addListener(
-  async (
+  (
     message: ExtensionMessage,
     _sender: chrome.runtime.MessageSender,
     sendResponse: (response: MessageResponse) => void
@@ -19,7 +24,7 @@ chrome.runtime.onMessage.addListener(
 
       case ExtensionAction.PERFORM_OCR:
         const { imageDataUrl, rect } = message.payload;
-        await runTesseractOcr(imageDataUrl, rect, sendResponse);
+        runTesseractOcr(imageDataUrl, rect, sendResponse);
         break;
     }
 
@@ -32,6 +37,12 @@ async function runTesseractOcr(
   rect: SelectionRect,
   sendResponse: (response: MessageResponse) => void
 ): Promise<void> {
+  // Calculate cursor position from selection rect (bottom-right corner)
+  const cursorPosition = {
+    x: rect.x + rect.width,
+    y: rect.y + rect.height,
+  };
+
   try {
     console.log(`[Offscreen] Processing ${rect.width}x${rect.height} region`);
 
@@ -44,9 +55,21 @@ async function runTesseractOcr(
       sendResponse({
         status: 'error',
         message: `Image cropping failed: ${(err as Error).message}`,
+        confidence: 0,
+        croppedImageUrl: '',
       });
       return;
     }
+
+    // Send CROP_READY message to background (which will forward to content script)
+    const cropReadyPayload: CropReadyPayload = {
+      croppedImageUrl: cropped,
+      cursorPosition,
+    };
+    chrome.runtime.sendMessage<ExtensionMessage>({
+      action: ExtensionAction.CROP_READY,
+      payload: cropReadyPayload,
+    });
 
     // Initialize or reuse Tesseract worker
     let engine: Tesseract.Worker;
@@ -57,6 +80,8 @@ async function runTesseractOcr(
       sendResponse({
         status: 'error',
         message: `OCR worker initialization failed: ${(err as Error).message}`,
+        confidence: 0,
+        croppedImageUrl: cropped,
       });
       return;
     }
@@ -67,12 +92,19 @@ async function runTesseractOcr(
     const confidence = result.data.confidence;
 
     console.log(`OCR SUCCESS [confidence: ${confidence}%]:\n`, text);
-    sendResponse({ status: 'ok', message: text });
+    sendResponse({
+      status: 'ok',
+      message: text,
+      confidence,
+      croppedImageUrl: cropped,
+    });
   } catch (err) {
     console.error('[Offscreen] OCR recognition error:', err);
     sendResponse({
       status: 'error',
       message: `OCR recognition failed: ${(err as Error).message}`,
+      confidence: 0,
+      croppedImageUrl: '',
     });
   }
 }
@@ -97,39 +129,46 @@ async function cropImage(
     throw new Error('Canvas context failed');
   }
 
-  canvas.width = rect.width;
-  canvas.height = rect.height;
+  // Scale coordinates by devicePixelRatio since the captured screenshot
+  // is at native resolution, but selection coordinates are in CSS pixels
+  const dpr = rect.devicePixelRatio || 1;
+  const scaledX = rect.x * dpr;
+  const scaledY = rect.y * dpr;
+  const scaledWidth = rect.width * dpr;
+  const scaledHeight = rect.height * dpr;
+
+  canvas.width = scaledWidth;
+  canvas.height = scaledHeight;
 
   ctx.drawImage(
     img, // source image
-    // 1-4: what to copy
-    rect.x,
-    rect.y,
-    rect.width,
-    rect.height,
-    // where & how to draw it
+    // 1-4: what to copy (in native/scaled pixels)
+    scaledX,
+    scaledY,
+    scaledWidth,
+    scaledHeight,
+    // where & how to draw it (also in scaled pixels)
     0,
     0,
-    rect.width,
-    rect.height
+    scaledWidth,
+    scaledHeight
   );
 
-  return canvas.toDataURL(OCR.CROP_MIME);
+  return canvas.toDataURL(OCR_CONFIG.CROP_MIME);
 }
 
 async function getWorker(): Promise<Tesseract.Worker> {
   if (worker) return worker;
 
-  worker = await Tesseract.createWorker(OCR.LANG, OCR.OEM, {
+  worker = await Tesseract.createWorker(OCR_CONFIG.LANG, OCR_CONFIG.OEM, {
     workerBlobURL: false,
-    workerPath: FILES.OCR_WORKER,
-    corePath: FILES.OCR_CORE,
-    cacheMethod: OCR.CACHE_METHOD,
-    logger: (m) => {
-      if (m.status === OCR.PROGRESS_STATUS)
-        console.log(`[OCR] ${Math.floor(m.progress * 100)}%`);
-    },
+    workerPath: FILES_PATH.OCR_WORKER,
+    corePath: FILES_PATH.OCR_CORE,
+    cacheMethod: OCR_CONFIG.CACHE_METHOD,
   });
 
   return worker;
 }
+
+// Start warming up the worker as soon as the offscreen doc loads
+getWorker().catch((err) => console.error('Warmup failed:', err));
