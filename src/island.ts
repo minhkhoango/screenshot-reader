@@ -7,12 +7,16 @@ import {
   DEFAULT_SETTINGS,
   STORAGE_KEYS,
   ISLAND_CSS_VARS,
+  SETTINGS_CONFIG,
 } from './constants';
-import type {
-  Point,
-  IslandSettings,
-  OcrResultPayload,
-  IslandState,
+import {
+  ExtensionAction,
+  type Point,
+  type IslandSettings,
+  type OcrResultPayload,
+  type IslandState,
+  type SettingsConfigItem,
+  type ButtonConfigItem,
 } from './types';
 
 function query<T extends HTMLElement>(
@@ -38,6 +42,8 @@ export class FloatingIsland {
   private isExpanded = false;
   private hasCopied = false;
   private hasAutocopied = false;
+  private showNotification = false;
+  private notificationMessage = '';
 
   // Element Refs
   private els: {
@@ -47,15 +53,18 @@ export class FloatingIsland {
     copyBtn?: HTMLButtonElement;
     image?: HTMLImageElement;
     settingsBtn?: HTMLButtonElement;
-    toggle?: HTMLDivElement;
+    settingsPanel?: HTMLDivElement;
+    notification?: HTMLDivElement;
+    notificationClose?: HTMLButtonElement;
   } = {};
 
   // Drag state
   private isDragging = false;
   private dragOffset: Point = { x: 0, y: 0 };
 
-  constructor(cursorPosition: Point, imageUrl = '') {
+  constructor(cursorPosition: Point, imageUrl = '', notificationMessage = '') {
     this.imageUrl = imageUrl;
+    this.notificationMessage = notificationMessage;
     this.position = this.clampToViewport(cursorPosition);
 
     this.host = document.createElement('div');
@@ -73,6 +82,15 @@ export class FloatingIsland {
     if (payload.croppedImageUrl) this.imageUrl = payload.croppedImageUrl;
 
     this.updateUI();
+
+    // Auto-expand on success if enabled
+    if (
+      this.state === 'success' &&
+      this.settings.autoExpand &&
+      !this.isExpanded
+    ) {
+      this.toggleExpand(true);
+    }
 
     // Trigger autocopy on first success
     if (
@@ -102,9 +120,10 @@ export class FloatingIsland {
   // --- Private Methods ---
   private async loadSettings(): Promise<void> {
     try {
-      const stored = await chrome.storage.local.get(
-        STORAGE_KEYS.ISLAND_SETTINGS
-      );
+      const stored = await chrome.storage.local.get([
+        STORAGE_KEYS.ISLAND_SETTINGS,
+        STORAGE_KEYS.SHORTCUT_HINT_SHOWN,
+      ]);
       const savedSettings = stored[STORAGE_KEYS.ISLAND_SETTINGS] as
         | Partial<IslandSettings>
         | undefined;
@@ -113,6 +132,14 @@ export class FloatingIsland {
           ...DEFAULT_SETTINGS,
           ...savedSettings,
         };
+      }
+
+      // Show notification if not already shown and message provided
+      const hintShown = stored[STORAGE_KEYS.SHORTCUT_HINT_SHOWN] as
+        | boolean
+        | undefined;
+      if (!hintShown && this.notificationMessage) {
+        this.showNotification = true;
       }
     } catch {
       /* ignore */
@@ -126,7 +153,7 @@ export class FloatingIsland {
     this.shadow.appendChild(style);
 
     // Build container
-    this.container.className = `${CLASSES.island} ${CLASSES.entering}`;
+    this.container.className = `${CLASSES.island} ${CLASSES.entering} ${this.showNotification ? CLASSES.notificationShow : ''}`;
     this.updatePosition();
     this.container.innerHTML = this.renderTemplate();
     this.shadow.appendChild(this.container);
@@ -141,7 +168,12 @@ export class FloatingIsland {
     );
     this.els.image = query(this.container, `.${CLASSES.image}`);
     this.els.settingsBtn = query(this.container, `.${CLASSES.settingsbtn}`);
-    this.els.toggle = query(this.container, `.${CLASSES.toggle}`);
+    this.els.settingsPanel = query(this.container, `.${CLASSES.settings}`);
+    this.els.notification = query(this.container, `.${CLASSES.notification}`);
+    this.els.notificationClose = query(
+      this.container,
+      `.${CLASSES.notificationClose}`
+    );
 
     this.bindEvents();
     this.updateUI();
@@ -149,6 +181,10 @@ export class FloatingIsland {
 
   private renderTemplate(): string {
     return `
+      <div class="${CLASSES.notification}">
+        <span class="${CLASSES.notificationText}">${this.notificationMessage}</span>
+        <button class="${CLASSES.notificationClose}" aria-label="Close">${ICONS.close}</button>
+      </div>
       <div class="${CLASSES.row}">
         <img class="${CLASSES.image}" src="${this.imageUrl}" alt="Captured region"/>
         <div class="${CLASSES.content}">
@@ -162,9 +198,7 @@ export class FloatingIsland {
       </div>
       <textarea class="${CLASSES.textarea}"></textarea>
       <div class="${CLASSES.settings}">
-        <div class="setting-row">
-          <span>Auto-copy</span>
-          <div class="${CLASSES.toggle} ${this.settings.autoCopy ? CLASSES.active : ''}" data-key="autoCopy"></div>
+        ${this.renderSettingsRows()}
       </div>
     `;
   }
@@ -224,6 +258,39 @@ export class FloatingIsland {
     }
   }
 
+  private getToggleClass(key: keyof IslandSettings): string {
+    return `${CLASSES.toggle} ${this.settings[key] ? CLASSES.active : ''}`;
+  }
+
+  private isToggleConfig(
+    config: SettingsConfigItem | ButtonConfigItem
+  ): config is SettingsConfigItem {
+    return 'key' in config;
+  }
+
+  private renderSettingsRows(): string {
+    return SETTINGS_CONFIG.map((config) => {
+      if (this.isToggleConfig(config)) {
+        // Render toggle setting
+        return `
+          <div class="setting-row">
+            <span>${config.label}</span>
+            <div class="${this.getToggleClass(config.key)}" data-key="${config.key}"></div>
+          </div>`;
+      } else {
+        // Render button setting
+        return `
+          <div class="setting-row">
+            <span>${config.label}</span>
+            <button class="${CLASSES.settingsActionBtn}" data-action="${config.action}">
+              ${ICONS.keyboard}
+              <span class="external-indicator">${ICONS.externalLink}</span>
+            </button>
+          </div>`;
+      }
+    }).join('');
+  }
+
   // --- Logic & Events ---
 
   private bindEvents(): void {
@@ -240,20 +307,71 @@ export class FloatingIsland {
     });
     this.els.settingsBtn?.addEventListener('click', () => {
       this.container.classList.toggle(CLASSES.settingsShow);
-      if (!this.isExpanded) this.toggleExpand(true);
 
       // Reposition after settings panel changes widget size
       this.position = this.constrainToViewport(this.position);
       this.updatePosition();
     });
-    this.els.toggle?.addEventListener('click', (e) => {
-      const el = e.currentTarget as HTMLElement;
-      this.settings.autoCopy = !this.settings.autoCopy;
-      el.classList.toggle(CLASSES.active, this.settings.autoCopy);
-      chrome.storage.local.set({
-        [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
-      });
+
+    // Notification close button
+    this.els.notificationClose?.addEventListener('click', () => {
+      this.dismissNotification();
     });
+
+    this.els.settingsPanel?.addEventListener('click', (e) => {
+      // Handle toggle clicks
+      const toggle = (e.target as HTMLElement).closest(`.${CLASSES.toggle}`);
+      if (toggle) {
+        const key = toggle.getAttribute('data-key') as keyof IslandSettings;
+        if (!key) return;
+
+        this.settings[key] = !this.settings[key];
+        toggle.classList.toggle(CLASSES.active, this.settings[key]);
+        chrome.storage.local.set({
+          [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
+        });
+
+        // Trigger action immediately when enabling
+        if (this.settings[key]) {
+          if (
+            key === 'autoExpand' &&
+            this.state === 'success' &&
+            !this.isExpanded
+          ) {
+            this.toggleExpand(true);
+          } else if (
+            key === 'autoCopy' &&
+            this.state === 'success' &&
+            this.text
+          ) {
+            this.copyToClipboard();
+          }
+        }
+        return;
+      }
+
+      // Handle button clicks
+      const button = (e.target as HTMLElement).closest(
+        `.${CLASSES.settingsActionBtn}`
+      );
+      if (button) {
+        const action = button.getAttribute('data-action');
+        if (action === 'openShortcuts') {
+          chrome.runtime.sendMessage({
+            action: ExtensionAction.OPEN_SHORTCUTS_PAGE,
+          });
+        }
+      }
+    });
+  }
+
+  private dismissNotification(): void {
+    this.showNotification = false;
+    this.container.classList.remove(CLASSES.notificationShow);
+    // Mark as shown so it won't appear again [OFF FOR TESTING]
+    // chrome.storage.local.set({
+    //   [STORAGE_KEYS.SHORTCUT_HINT_SHOWN]: true,
+    // });
   }
 
   private toggleExpand(force?: boolean): void {
@@ -294,7 +412,8 @@ export class FloatingIsland {
       this.hasCopied = true;
       this.updateUI();
       // Auto clean up after copy
-      setTimeout(() => this.destroy(), CONFIG.WAIT_TIME_AFTER_COPY);
+      // Remember to add some exceptions like if isDragging, settings, expanded.
+      // setTimeout(() => this.destroy(), CONFIG.WAIT_TIME_AFTER_COPY);
     } catch (err) {
       console.error('Clipboard write failed:', err);
     }
@@ -355,8 +474,17 @@ export class FloatingIsland {
     const height = ISLAND_CSS_VARS.layout.heightCollapsed;
     const pad = ISLAND_CSS_VARS.layout.padding;
 
+    // Account for notification height if it will be shown
+    const notificationOffset = this.showNotification
+      ? ISLAND_CSS_VARS.layout.notificationHeight +
+        ISLAND_CSS_VARS.layout.notificationGap
+      : 0;
+
     const x = Math.min(Math.max(pad, pos.x), window.innerWidth - width - pad);
-    const y = Math.min(Math.max(pad, pos.y), window.innerHeight - height - pad);
+    const y = Math.min(
+      Math.max(pad + notificationOffset, pos.y),
+      window.innerHeight - height - pad
+    );
     return { x, y };
   }
 

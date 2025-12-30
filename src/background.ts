@@ -1,4 +1,4 @@
-import { FILES_PATH, STORAGE_KEYS, OCR_CONFIG } from './constants';
+import { FILES_PATH, STORAGE_KEYS, OCR_CONFIG, IDS } from './constants';
 import { ExtensionAction } from './types';
 import type {
   ExtensionMessage,
@@ -7,12 +7,68 @@ import type {
   OcrResultPayload,
   SelectionRect,
   CropReadyPayload,
+  ShowHintPayload,
 } from './types';
 
 // Track the tab that initiated OCR (for forwarding CROP_READY)
 let activeOcrTabId: number | undefined;
 
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: IDS.MENU_TRIGGER,
+    title: 'Capture Area (Alt+Shift+S)',
+    contexts: ['all'],
+  });
+});
+
+// tool bar icon click
 chrome.action.onClicked.addListener(async (tab) => {
+  executeScreenshotFlow(tab);
+});
+
+// Keyboard Shortcut
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command === IDS.COMMAND_TRIGGER && tab) {
+    executeScreenshotFlow(tab);
+  }
+});
+
+// Context Menu Click
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === IDS.MENU_TRIGGER && tab) {
+    executeScreenshotFlow(tab);
+  }
+});
+
+// Routing messages across scripts
+chrome.runtime.onMessage.addListener(
+  async (
+    message: ExtensionMessage,
+    sender: chrome.runtime.MessageSender,
+    _sendResponse: (response: MessageResponse) => void
+  ) => {
+    switch (message.action) {
+      case ExtensionAction.CAPTURE_SUCCESS: {
+        await handleCaptureSuccess(message.payload, sender.tab?.id);
+        break;
+      }
+      case ExtensionAction.CROP_READY: {
+        // Forward CROP_READY from offscreen to content script
+        if (activeOcrTabId) {
+          sendCropReadyToTab(activeOcrTabId, message.payload);
+        }
+        break;
+      }
+      case ExtensionAction.OPEN_SHORTCUTS_PAGE: {
+        chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+        break;
+      }
+    }
+    return true; // keep channel open
+  }
+);
+
+async function executeScreenshotFlow(tab: chrome.tabs.Tab) {
   if (!tab.id || !tab.url) return;
   if (tab.url.startsWith('chrome://')) {
     console.log('Protected site, backup method needed');
@@ -38,36 +94,14 @@ chrome.action.onClicked.addListener(async (tab) => {
       console.warn('Overlay failed:', overlayResponse.message);
     }
 
+    await checkAndShowShortcutHint(tab.id);
+
     // warm up the offscreen engine
     await setupOffscreenDocument(FILES_PATH.OFFSCREEN_HTML);
   } catch (err) {
     console.error('Background workflow error:', err);
   }
-});
-
-// Routing messages across scripts
-chrome.runtime.onMessage.addListener(
-  async (
-    message: ExtensionMessage,
-    sender: chrome.runtime.MessageSender,
-    _sendResponse: (response: MessageResponse) => void
-  ) => {
-    switch (message.action) {
-      case ExtensionAction.CAPTURE_SUCCESS: {
-        await handleCaptureSuccess(message.payload, sender.tab?.id);
-        break;
-      }
-      case ExtensionAction.CROP_READY: {
-        // Forward CROP_READY from offscreen to content script
-        if (activeOcrTabId) {
-          sendCropReadyToTab(activeOcrTabId, message.payload);
-        }
-        break;
-      }
-    }
-    return true; // keep channel open
-  }
-);
+}
 
 async function handleCaptureSuccess(
   payload: SelectionRect,
@@ -277,4 +311,29 @@ async function setupOffscreenDocument(path: string): Promise<void> {
 
   await creatingOffscreenPromise;
   creatingOffscreenPromise = null;
+}
+
+async function checkAndShowShortcutHint(tabId: number) {
+  const result = await chrome.storage.local.get(
+    STORAGE_KEYS.SHORTCUT_HINT_SHOWN
+  );
+  if (!result[STORAGE_KEYS.SHORTCUT_HINT_SHOWN]) {
+    const hintPayload: ShowHintPayload = {
+      message: 'Press Alt+Shift+S to capture instantly',
+    };
+
+    chrome.tabs
+      .sendMessage(tabId, {
+        action: ExtensionAction.SHOW_HINT,
+        payload: hintPayload,
+      })
+      .catch(() => {
+        /* ignore if tab closed */
+      });
+
+    // Don't nag for now.
+    // await chrome.storage.local.set({
+    //   [STORAGE_KEYS.SHORTCUT_HINT_SHOWN]: true,
+    // });
+  }
 }

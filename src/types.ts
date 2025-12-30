@@ -25,6 +25,8 @@ export const ExtensionAction = {
   OCR_RESULT: 'OCR_RESULT',
   OCR_PROGRESS: 'OCR_PROGRESS',
   CROP_READY: 'CROP_READY',
+  SHOW_HINT: 'SHOW_HINT',
+  OPEN_SHORTCUTS_PAGE: 'OPEN_SHORTCUTS_PAGE',
 } as const;
 
 export type ExtensionAction =
@@ -51,6 +53,10 @@ export interface CropReadyPayload {
   cursorPosition: Point;
 }
 
+export interface ShowHintPayload {
+  message: string;
+}
+
 export type ExtensionMessage =
   | { action: typeof ExtensionAction.ACTIVATE_OVERLAY }
   | { action: typeof ExtensionAction.CAPTURE_SUCCESS; payload: SelectionRect }
@@ -65,7 +71,9 @@ export type ExtensionMessage =
       action: typeof ExtensionAction.OCR_PROGRESS;
       payload: OcrProgressPayload;
     }
-  | { action: typeof ExtensionAction.CROP_READY; payload: CropReadyPayload };
+  | { action: typeof ExtensionAction.CROP_READY; payload: CropReadyPayload }
+  | { action: typeof ExtensionAction.SHOW_HINT; payload: ShowHintPayload }
+  | { action: typeof ExtensionAction.OPEN_SHORTCUTS_PAGE };
 
 export interface MessageResponse {
   status: 'ok' | 'error';
@@ -77,11 +85,29 @@ export interface MessageResponse {
 
 export interface SessionStorage {
   capturedImage: string;
+  shortcutHintShown: boolean;
 }
 
-/** Settings stored in chrome.storage.local */
+/** Stored in chrome.storage.local */
 export interface IslandSettings {
   autoCopy: boolean;
+  autoExpand: boolean;
 }
+
+/** Settings configuration item for rendering settings UI */
+export interface SettingsConfigItem {
+  key: keyof IslandSettings;
+  label: string;
+  type?: 'toggle' | 'button';
+}
+
+/** Button-only settings config (no stored state) */
+export interface ButtonConfigItem {
+  action: string;
+  label: string;
+  type: 'button';
+}
+
+export type SettingsRowConfig = SettingsConfigItem | ButtonConfigItem;
 
 export type IslandState = 'loading' | 'success' | 'error';

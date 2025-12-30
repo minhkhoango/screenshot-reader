@@ -2,11 +2,28 @@
   "manifest_version": 3,
   "name": "screenshot-reader",
   "version": "1.0.0",
-  "action": {},
+  "action": {
+    "default_title": "Screenshot Reader (Alt/Command +Shift+S)"
+  },
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["activeTab", "scripting", "storage", "offscreen"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "offscreen",
+    "contextMenus"
+  ],
+  "commands": {
+    "command-trigger-screenshot": {
+      "suggested_key": {
+        "default": "Alt+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Capture Area"
+    }
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },

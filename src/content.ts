@@ -11,6 +11,7 @@ import { FloatingIsland } from './island';
 // State Management
 let activeOverlay: GhostOverlay | null = null;
 let activeIsland: FloatingIsland | null = null;
+let pendingNotificationMessage: string | null = null;
 
 chrome.runtime.onMessage.addListener(
   (
@@ -42,6 +43,11 @@ chrome.runtime.onMessage.addListener(
         handleOcrResult(message.payload);
         sendResponse({ status: 'ok' });
         break;
+
+      case ExtensionAction.SHOW_HINT:
+        pendingNotificationMessage = message.payload.message;
+        sendResponse({ status: 'ok' });
+        break;
     }
     return false;
   }
@@ -50,9 +56,14 @@ chrome.runtime.onMessage.addListener(
 function handleCropReady(payload: CropReadyPayload): void {
   if (activeIsland) activeIsland.destroy();
 
+  // Pass pending notification message to the island
+  const notificationMessage = pendingNotificationMessage || '';
+  pendingNotificationMessage = null;
+
   activeIsland = new FloatingIsland(
     payload.cursorPosition,
-    payload.croppedImageUrl
+    payload.croppedImageUrl,
+    notificationMessage
   );
   activeIsland.mount();
 }
