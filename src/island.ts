@@ -418,13 +418,29 @@ export class FloatingIsland {
 
   private async copyToClipboard(): Promise<void> {
     if (!this.text) return;
+    if (!navigator.clipboard) {
+      console.warn('Clipboard API not available');
+      this.els.status!.textContent = 'Clipboard Error';
+      return;
+    }
 
     try {
       await navigator.clipboard.writeText(this.text);
       this.hasCopied = true;
       this.updateUI();
     } catch (err) {
-      console.error('Clipboard write failed:', err);
+      if (err instanceof Error) {
+        if (err.name === 'NotAllowedError' || err.message.includes('focus')) {
+          console.log(
+            'Auto-copy blocked (document not focused). Waiting for user click.'
+          );
+        }
+      } else {
+        // Genuine unexpected errors
+        console.error('Clipboard write failed:', err);
+        this.state = 'error';
+        this.updateUI();
+      }
     }
   }
 

@@ -132,7 +132,7 @@ export const ISLAND_STYLES = `
 }
 
 .${CLASSES.status} {
-  font-size: ${ISLAND_CSS.font.sizeSmall}px;
+  font-size: ${ISLAND_CSS.font.sizeNormal}px;
   font-weight: ${ISLAND_CSS.font.weightMedium};
   display: flex;
   align-items: center;
@@ -221,7 +221,7 @@ export const ISLAND_STYLES = `
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: ${ISLAND_CSS.font.sizeSmall}px;
+  font-size: ${ISLAND_CSS.font.sizeNormal}px;
   font-weight: ${ISLAND_CSS.font.weightMedium};
   color: var(--text-muted);
   padding: 0 ${ISLAND_CSS.spacing.xs}px;
@@ -276,7 +276,7 @@ export const ISLAND_STYLES = `
   border-radius: ${ISLAND_CSS.layout.radiusPill}px;
 
   font-family: var(--font-main);
-  font-size: ${ISLAND_CSS.font.sizeSmall}px;
+  font-size: ${ISLAND_CSS.font.sizeNormal}px;
   font-weight: ${ISLAND_CSS.font.weightMedium};
   cursor: pointer;
   user-select: none;
@@ -308,7 +308,7 @@ export const ISLAND_STYLES = `
   border-radius: ${ISLAND_CSS.layout.radiusNotification}px;
   box-shadow: ${ISLAND_CSS.shadows.notification};
   
-  font-size: ${ISLAND_CSS.font.sizeSmall}px;
+  font-size: ${ISLAND_CSS.font.sizeNormal}px;
   font-weight: ${ISLAND_CSS.font.weightMedium};
   color: ${ISLAND_CSS.colors.textMain};
   

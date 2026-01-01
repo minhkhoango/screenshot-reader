@@ -8,10 +8,10 @@ export const IDS = {
 export const OCR_CONFIG = {
   CAPTURE_FORMAT: 'png',
   CROP_MIME: 'image/png',
-  LANG: 'eng',
+  LANG_PATH: 'https://tessdata.projectnaptha.com/4.0.0',
   OEM: 1,
   JUSTIFICATION: 'Processing screenshot image data for OCR',
-  CACHE_METHOD: 'none',
+  CACHE_METHOD: 'write',
   PROGRESS_STATUS: 'recognizing text',
 } as const;
 
@@ -26,7 +26,6 @@ export const CONFIG = {
   WIGGLE_TIME: 200,
   MIN_SELECTION_ZX: 5,
   MIN_SELECTION_ZY: 5,
-  DRAG_THRESHOLD: 3,
   TEXT_MAX_COLLAPSED: 25,
   TEXT_MAX_EXPANDED: 100,
 } as const;
@@ -138,9 +137,11 @@ export const ISLAND_CSS = {
     radiusPill: 100,
     radiusNotification: 22,
     widthCollapsed: 320,
-    widthExpanded: 540,
+    // 650 & sizeSmall 11 to fit text of websites
+    // without spilling to the line below
+    widthExpanded: 650,
     heightCollapsed: 64,
-    heightExpanded: 420,
+    heightExpanded: 450,
     heightMax: 500,
     imageSize: 40,
     buttonSize: 40,
@@ -170,7 +171,8 @@ export const ISLAND_CSS = {
     family:
       "'Google Sans', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     mono: "'Roboto Mono', 'SF Mono', 'Menlo', monospace",
-    sizeSmall: 13,
+    sizeSmall: 11,
+    sizeNormal: 13,
     weightMedium: 500,
     lineHeightNormal: 1.4,
     lineHeightRelaxed: 1.6,
