@@ -10,6 +10,8 @@ import Tesseract from 'tesseract.js';
 
 // Initialize worker once
 let worker: Tesseract.Worker | null = null;
+let currentLanguage: string = 'eng'; // the default
+let saveCroppedImage: string | null = null;
 
 chrome.runtime.onMessage.addListener(
   (
@@ -23,9 +25,14 @@ chrome.runtime.onMessage.addListener(
         break;
 
       case ExtensionAction.PERFORM_OCR:
-        const { imageDataUrl, rect } = message.payload;
-        runTesseractOcr(imageDataUrl, rect, sendResponse);
+        const { imageDataUrl, rect, language } = message.payload;
+        currentLanguage = language;
+        runTesseractOcr(imageDataUrl, rect, language, sendResponse);
         break;
+
+      case ExtensionAction.UPDATE_LANGUAGE:
+        const { language: retryLanguage } = message.payload;
+        retryTesseractOcr(retryLanguage, sendResponse);
     }
 
     return true; // Keep channel open
@@ -35,6 +42,7 @@ chrome.runtime.onMessage.addListener(
 async function runTesseractOcr(
   imageDataUrl: string,
   rect: SelectionRect,
+  language: string,
   sendResponse: (response: MessageResponse) => void
 ): Promise<void> {
   // Calculate cursor position from selection rect (bottom-right corner)
@@ -50,6 +58,9 @@ async function runTesseractOcr(
     let cropped: string;
     try {
       cropped = await cropImage(imageDataUrl, rect);
+
+      // Save cropped image in case of language retry
+      saveCroppedImage = cropped;
     } catch (err) {
       console.error('[Offscreen] Image cropping error:', err);
       sendResponse({
@@ -71,33 +82,7 @@ async function runTesseractOcr(
       payload: cropReadyPayload,
     });
 
-    // Initialize or reuse Tesseract worker
-    let engine: Tesseract.Worker;
-    try {
-      engine = await getWorker();
-    } catch (err) {
-      console.error('[Offscreen] Worker initialization error:', err);
-      sendResponse({
-        status: 'error',
-        message: `OCR worker initialization failed: ${(err as Error).message}`,
-        confidence: 0,
-        croppedImageUrl: cropped,
-      });
-      return;
-    }
-
-    // Perform OCR recognition
-    const result = await engine.recognize(cropped);
-    const text = result.data.text.trim();
-    const confidence = result.data.confidence;
-
-    console.log(`OCR SUCCESS [confidence: ${confidence}%]:\n`, text);
-    sendResponse({
-      status: 'ok',
-      message: text,
-      confidence,
-      croppedImageUrl: cropped,
-    });
+    await performRecognition(cropped, language, sendResponse);
   } catch (err) {
     console.error('[Offscreen] OCR recognition error:', err);
     sendResponse({
@@ -107,6 +92,102 @@ async function runTesseractOcr(
       croppedImageUrl: '',
     });
   }
+}
+
+async function retryTesseractOcr(
+  language: string,
+  sendResponse: (response: MessageResponse) => void
+) {
+  try {
+    console.log(`[Offscreen] Retrying OCR with language: ${language}`);
+    if (!saveCroppedImage) {
+      throw new Error('No saved cropped image found for retry');
+    }
+
+    await performRecognition(saveCroppedImage, language, sendResponse);
+  } catch (err) {
+    console.error('[Offscreen] Retry error:', err);
+    sendResponse({
+      status: 'error',
+      message: `Retry failed: ${(err as Error).message}`,
+      confidence: 0,
+    });
+  }
+}
+
+async function performRecognition(
+  image: string,
+  language: string,
+  sendResponse: (response: MessageResponse) => void
+) {
+  // Initialize or reuse Tesseract worker
+  let engine: Tesseract.Worker;
+  try {
+    engine = await getWorker(language);
+  } catch (err) {
+    console.error('[Offscreen] Worker initialization error:', err);
+    sendResponse({
+      status: 'error',
+      message: `OCR worker initialization failed: ${(err as Error).message}`,
+      confidence: 0,
+      croppedImageUrl: image,
+    });
+    return;
+  }
+
+  // Perform OCR recognition
+  try {
+    const result = await engine.recognize(image);
+    const confidence = result.data.confidence;
+    const text = result.data.text.trim();
+
+    console.log(`OCR SUCCESS [confidence: ${confidence}%]:\n`, text);
+    sendResponse({
+      status: 'ok',
+      message: text,
+      confidence,
+      croppedImageUrl: image,
+    });
+  } catch (err) {
+    console.error('[Offscreen] Recognition error:', err);
+    sendResponse({
+      status: 'error',
+      message: `OCR recognition failed: ${(err as Error).message}`,
+      confidence: 0,
+      croppedImageUrl: image,
+    });
+  }
+}
+
+async function getWorker(language: string): Promise<Tesseract.Worker> {
+  if (worker && currentLanguage === language) return worker;
+
+  if (worker) await worker.terminate();
+
+  worker = await Tesseract.createWorker(language, OCR_CONFIG.OEM, {
+    workerBlobURL: false,
+    workerPath: FILES_PATH.OCR_WORKER,
+    corePath: FILES_PATH.OCR_CORE,
+    langPath: OCR_CONFIG.LANG_PATH,
+    cacheMethod: OCR_CONFIG.CACHE_METHOD,
+  });
+
+  currentLanguage = language;
+
+  const params: Partial<Tesseract.WorkerParams> = {};
+
+  // Brian's parameter logic
+  if (language.endsWith('_vert')) {
+    params.tessedit_pageseg_mode = Tesseract.PSM.SINGLE_BLOCK_VERT_TEXT;
+  }
+  if (['chi_sim', 'chi_tra', 'jpn', 'jpn_vert', 'tha'].includes(language)) {
+    params.preserve_interword_spaces = '1';
+  }
+  if (Object.keys(params).length > 0) {
+    await worker.setParameters(params);
+  }
+
+  return worker;
 }
 
 async function cropImage(
@@ -156,18 +237,5 @@ async function cropImage(
   return canvas.toDataURL(OCR_CONFIG.CROP_MIME);
 }
 
-async function getWorker(): Promise<Tesseract.Worker> {
-  if (worker) return worker;
-
-  worker = await Tesseract.createWorker(OCR_CONFIG.LANG, OCR_CONFIG.OEM, {
-    workerBlobURL: false,
-    workerPath: FILES_PATH.OCR_WORKER,
-    corePath: FILES_PATH.OCR_CORE,
-    cacheMethod: OCR_CONFIG.CACHE_METHOD,
-  });
-
-  return worker;
-}
-
 // Start warming up the worker as soon as the offscreen doc loads
-getWorker().catch((err) => console.error('Warmup failed:', err));
+getWorker(currentLanguage).catch((err) => console.error('Warmup failed:', err));

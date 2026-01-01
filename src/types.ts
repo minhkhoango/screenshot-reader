@@ -18,8 +18,8 @@ export const ExtensionAction = {
   PING_CONTENT: 'PING_CONTENT',
   PING_OFFSCREEN: 'PING_OFFSCREEN',
   PERFORM_OCR: 'PERFORM_OCR',
+  UPDATE_LANGUAGE: 'UPDATE_LANGUAGE',
   OCR_RESULT: 'OCR_RESULT',
-  OCR_PROGRESS: 'OCR_PROGRESS',
   CROP_READY: 'CROP_READY',
   SHOW_HINT: 'SHOW_HINT',
   OPEN_SHORTCUTS_PAGE: 'OPEN_SHORTCUTS_PAGE',
@@ -47,14 +47,25 @@ export interface ShowHintPayload {
   message: string;
 }
 
+export interface OcrPerformPayload {
+  imageDataUrl: string;
+  rect: SelectionRect;
+  language: string;
+}
+
+export interface UpdateLanguagePayload {
+  language: string;
+}
+
 export type ExtensionMessage =
   | { action: typeof ExtensionAction.ACTIVATE_OVERLAY }
   | { action: typeof ExtensionAction.CAPTURE_SUCCESS; payload: SelectionRect }
   | { action: typeof ExtensionAction.PING_CONTENT }
   | { action: typeof ExtensionAction.PING_OFFSCREEN }
+  | { action: typeof ExtensionAction.PERFORM_OCR; payload: OcrPerformPayload }
   | {
-      action: typeof ExtensionAction.PERFORM_OCR;
-      payload: { imageDataUrl: string; rect: SelectionRect };
+      action: typeof ExtensionAction.UPDATE_LANGUAGE;
+      payload: UpdateLanguagePayload;
     }
   | { action: typeof ExtensionAction.OCR_RESULT; payload: OcrResultPayload }
   | { action: typeof ExtensionAction.CROP_READY; payload: CropReadyPayload }
@@ -73,12 +84,14 @@ export interface MessageResponse {
 
 export interface SessionStorage {
   capturedImage: string;
+  croppedImage: string;
   shortcutHintShown: boolean;
 }
 
 export interface IslandSettings {
   autoCopy: boolean;
   autoExpand: boolean;
+  language: string;
 }
 
 export interface ToggleConfigItem {
@@ -93,4 +106,14 @@ export interface ButtonConfigItem {
   type: 'button';
 }
 
-export type SettingsRowConfig = ToggleConfigItem | ButtonConfigItem;
+export interface DropdownConfigItem {
+  key: keyof IslandSettings;
+  label: string;
+  type: 'dropdown';
+  options: ReadonlyArray<{ value: string; label: string }>;
+}
+
+export type SettingsRowConfig =
+  | ToggleConfigItem
+  | ButtonConfigItem
+  | DropdownConfigItem;

@@ -10,12 +10,12 @@ import {
 } from './constants';
 import {
   ExtensionAction,
+  type ExtensionMessage,
   type Point,
   type IslandSettings,
   type OcrResultPayload,
   type IslandState,
-  type ToggleConfigItem,
-  type ButtonConfigItem,
+  type MessageResponse,
 } from './types';
 
 function query<T extends HTMLElement>(
@@ -123,7 +123,7 @@ export class FloatingIsland {
   // --- Private Methods ---
   private async loadShortcut(): Promise<void> {
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await chrome.runtime.sendMessage<ExtensionMessage>({
         action: ExtensionAction.GET_SHORTCUT,
       });
       this.shortcutText = response?.shortcut || 'Set shortcut';
@@ -181,7 +181,7 @@ export class FloatingIsland {
       `.${CLASSES.btn}.${CLASSES.copybtn}`
     );
     this.els.image = query(this.container, `.${CLASSES.image}`);
-    this.els.settingsBtn = query(this.container, `.${CLASSES.settingsbtn}`);
+    this.els.settingsBtn = query(this.container, `.${CLASSES.openSettings}`);
     this.els.settingsPanel = query(this.container, `.${CLASSES.settings}`);
     this.els.notification = query(this.container, `.${CLASSES.notification}`);
     this.els.notificationClose = query(
@@ -207,7 +207,7 @@ export class FloatingIsland {
         </div>
         <div class="${CLASSES.actions}">
           <button class="${CLASSES.btn} ${CLASSES.copybtn} ${CLASSES.loading}">${ICONS.spinner}</button>
-          <button class="${CLASSES.btn} ${CLASSES.settingsbtn}">${ICONS.settings}</button>
+          <button class="${CLASSES.btn} ${CLASSES.openSettings}">${ICONS.settings}</button>
         </div>
       </div>
       <textarea class="${CLASSES.textarea}"></textarea>
@@ -272,35 +272,47 @@ export class FloatingIsland {
     }
   }
 
-  private getToggleClass(key: keyof IslandSettings): string {
-    return `${CLASSES.toggle} ${this.settings[key] ? CLASSES.active : ''}`;
-  }
-
-  private isToggleConfig(
-    config: ToggleConfigItem | ButtonConfigItem
-  ): config is ToggleConfigItem {
-    return 'key' in config;
-  }
-
   private renderSettingsRows(): string {
     return SETTINGS_CONFIG.map((config) => {
-      if (this.isToggleConfig(config)) {
-        // Render toggle setting
+      // Render language dropdown
+      if (config.type === 'dropdown') {
+        const currentValue = this.settings[config.key] as string;
+        const optionsHtml = config.options
+          .map(
+            (opt) =>
+              `<option value="${opt.value}" ${opt.value === currentValue ? 'selected' : ''}>${opt.label}</option>`
+          )
+          .join('');
+
         return `
-          <div class="setting-row">
-            <span>${config.label}</span>
-            <div class="${this.getToggleClass(config.key)}" data-key="${config.key}"></div>
-          </div>`;
-      } else {
-        // Render button setting
+           <div class="${CLASSES.settingRow}">
+             <span>${config.label}</span>
+             <div class="${CLASSES.selectWrapper}">
+                <select class="${CLASSES.settingsSelect}" data-key="${config.key}">
+                  ${optionsHtml}
+                </select>
+             </div>
+           </div>`;
+      }
+
+      // Render auto-copy / auto-expand toggles
+      if ('key' in config) {
+        const toggleClass = `${CLASSES.toggle} ${this.settings[config.key] ? CLASSES.active : ''}`;
         return `
-          <div class="setting-row">
+          <div class="${CLASSES.settingRow}">
             <span>${config.label}</span>
-            <button class="${CLASSES.settingsActionBtn}" data-action="${config.action}">
-              ${this.shortcutText}
-            </button>
+            <div class="${toggleClass}" data-key="${config.key}"></div>
           </div>`;
       }
+
+      // Render shortcut button
+      return `
+        <div class="${CLASSES.settingRow}">
+          <span>${config.label}</span>
+          <button class="${CLASSES.settingsActionBtn}" data-action="${config.action}">
+            ${this.shortcutText}
+          </button>
+        </div>`;
     }).join('');
   }
 
@@ -319,7 +331,7 @@ export class FloatingIsland {
       this.updateUI();
     });
     this.els.settingsBtn?.addEventListener('click', () => {
-      this.container.classList.toggle(CLASSES.settingsShow);
+      this.container.classList.toggle(CLASSES.expandSettings);
 
       // Reposition after settings panel changes widget size
       this.position = this.constrainToViewport(this.position);
@@ -331,6 +343,44 @@ export class FloatingIsland {
       this.dismissNotification();
     });
 
+    this.els.settingsPanel?.addEventListener('change', async (e) => {
+      const target = e.target as HTMLSelectElement;
+      if (!target.classList.contains(CLASSES.settingsSelect)) return;
+
+      const key = target.getAttribute('data-key') as keyof IslandSettings;
+      const value = target.value;
+
+      if (key && key === 'language') {
+        this.settings[key] = value;
+        chrome.storage.local.set({
+          [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
+        });
+
+        // Trigger update language / ocr logic
+        if (this.imageUrl) {
+          this.state = 'loading';
+          this.text = '';
+          this.hasCopied = false;
+          this.updateUI();
+
+          const ocrResult = await chrome.runtime.sendMessage<
+            ExtensionMessage,
+            MessageResponse
+          >({
+            action: ExtensionAction.UPDATE_LANGUAGE,
+            payload: { language: value },
+          });
+
+          if (ocrResult === undefined) {
+            console.log('ocrResult is undefined.');
+          }
+          this.state = 'success';
+          this.text = ocrResult.message || '';
+          this.updateUI();
+        }
+      }
+    });
+
     this.els.settingsPanel?.addEventListener('click', (e) => {
       // Handle toggle clicks
       const toggle = (e.target as HTMLElement).closest(`.${CLASSES.toggle}`);
@@ -338,8 +388,8 @@ export class FloatingIsland {
         const key = toggle.getAttribute('data-key') as keyof IslandSettings;
         if (!key) return;
 
-        this.settings[key] = !this.settings[key];
-        toggle.classList.toggle(CLASSES.active, this.settings[key]);
+        (this.settings[key] as boolean) = !this.settings[key];
+        toggle.classList.toggle(CLASSES.active, this.settings[key] as boolean);
         chrome.storage.local.set({
           [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
         });
@@ -370,7 +420,7 @@ export class FloatingIsland {
       if (button) {
         const action = button.getAttribute('data-action');
         if (action === 'openShortcuts') {
-          chrome.runtime.sendMessage({
+          chrome.runtime.sendMessage<ExtensionMessage>({
             action: ExtensionAction.OPEN_SHORTCUTS_PAGE,
           });
         }
@@ -454,7 +504,14 @@ export class FloatingIsland {
     const target = e.target as HTMLElement;
     if (
       target.closest(
-        `.${CLASSES.btn}, .${CLASSES.toggle}, .${CLASSES.textarea}, .${CLASSES.preview}`
+        `.${CLASSES.btn}, 
+        .${CLASSES.toggle}, 
+        .${CLASSES.textarea}, 
+        .${CLASSES.preview}, 
+        .${CLASSES.settingsSelect}, 
+        .${CLASSES.selectWrapper}, 
+        .${CLASSES.settingsActionBtn}, 
+        .${CLASSES.notificationClose}`
       )
     )
       return;

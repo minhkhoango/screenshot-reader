@@ -1,3 +1,4 @@
+import { CHROME_TO_TESSERACT } from './language_map';
 import { FILES_PATH, STORAGE_KEYS, OCR_CONFIG } from './constants';
 import { ExtensionAction } from './types';
 import type {
@@ -8,6 +9,7 @@ import type {
   SelectionRect,
   CropReadyPayload,
   ShowHintPayload,
+  IslandSettings,
 } from './types';
 
 // Track the tab that initiated OCR (for forwarding CROP_READY)
@@ -155,6 +157,7 @@ async function handleCaptureSuccess(
       return;
     }
 
+    const language = await getUserLanguage();
     const ocrResult = await chrome.runtime.sendMessage<
       ExtensionMessage,
       MessageResponse
@@ -163,6 +166,7 @@ async function handleCaptureSuccess(
       payload: {
         imageDataUrl: capturedImage,
         rect: payload,
+        language: language,
       },
     });
 
@@ -356,4 +360,27 @@ async function getShortcutCommand(): Promise<string> {
 
   if (!cmd || !cmd.shortcut) return '';
   return cmd.shortcut;
+}
+
+async function getUserLanguage(): Promise<string> {
+  try {
+    // Check user storage
+    const stored = await chrome.storage.local.get(STORAGE_KEYS.ISLAND_SETTINGS);
+    const settings = stored[
+      STORAGE_KEYS.ISLAND_SETTINGS
+    ] as Partial<IslandSettings>;
+    if (settings?.language) return settings.language;
+  } catch {
+    /* ignore */
+  }
+
+  // Check browser language
+  const uiLang = await chrome.i18n.getUILanguage();
+  if (CHROME_TO_TESSERACT[uiLang]) return CHROME_TO_TESSERACT[uiLang];
+
+  // Try mapping base language (e.g. 'fr' from 'fr-CA')
+  const prefix = uiLang.split('-')[0];
+  if (CHROME_TO_TESSERACT[prefix]) return CHROME_TO_TESSERACT[prefix];
+
+  return 'eng';
 }

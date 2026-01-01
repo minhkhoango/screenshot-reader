@@ -1,4 +1,5 @@
 import type { SettingsRowConfig, IslandSettings } from './types';
+import { LANGUAGES } from './language_map';
 
 export const IDS = {
   OVERLAY: 'xr-screenshot-reader-host',
@@ -32,6 +33,7 @@ export const CONFIG = {
 
 export const STORAGE_KEYS = {
   CAPTURED_IMAGE: 'capturedImage',
+  CROPPED_IMAGE: 'croppedImage',
   ISLAND_SETTINGS: 'islandSettings',
   SHORTCUT_HINT_SHOWN: 'shortcutHintShown',
 } as const;
@@ -39,9 +41,11 @@ export const STORAGE_KEYS = {
 export const DEFAULT_SETTINGS: IslandSettings = {
   autoCopy: true,
   autoExpand: false,
+  language: 'eng',
 } as const;
 
 export const SETTINGS_CONFIG: SettingsRowConfig[] = [
+  { key: 'language', label: 'Language', type: 'dropdown', options: LANGUAGES },
   { key: 'autoCopy', label: 'Auto-copy', type: 'toggle' },
   { key: 'autoExpand', label: 'Auto-expand', type: 'toggle' },
   { action: 'openShortcuts', label: 'Keyboard shortcut', type: 'button' },
@@ -59,10 +63,13 @@ export const CLASSES = {
   actions: 'island-actions',
   btn: 'island-btn',
   copybtn: 'copy-btn',
-  settingsbtn: 'settings-btn',
   settings: 'island-settings',
-  settingsShow: 'show-settings',
+  settingRow: 'setting-row',
+  expandSettings: 'expand-settings',
+  openSettings: 'open-settings',
   settingsActionBtn: 'settings-action-btn',
+  settingsSelect: 'settings-select',
+  selectWrapper: 'select-wrapper',
   toggle: 'toggle',
   loading: 'loading',
   success: 'success',
@@ -127,6 +134,7 @@ export const ISLAND_CSS = {
     // Borders & Overlays
     borderSubtle: 'rgba(0, 0, 0, 0.06)',
     overlayDark: 'rgba(0, 0, 0, 0.08)',
+    inputBorder: 'rgba(0, 0, 0, 0.12)',
   },
   layout: {
     padding: 12,
@@ -157,6 +165,7 @@ export const ISLAND_CSS = {
     expandToLeft: true,
     notificationHeight: 44,
     notificationGap: 8,
+    selectHeight: 32,
   },
   spacing: {
     xs: 2,
