@@ -24,7 +24,6 @@ export const FILES_PATH = {
 } as const;
 
 export const CONFIG = {
-  WIGGLE_TIME: 200,
   MIN_SELECTION_ZX: 5,
   MIN_SELECTION_ZY: 5,
   TEXT_MAX_COLLAPSED: 25,
@@ -35,7 +34,6 @@ export const STORAGE_KEYS = {
   CAPTURED_IMAGE: 'capturedImage',
   CROPPED_IMAGE: 'croppedImage',
   ISLAND_SETTINGS: 'islandSettings',
-  SHORTCUT_HINT_SHOWN: 'shortcutHintShown',
 } as const;
 
 export const DEFAULT_SETTINGS: IslandSettings = {
@@ -76,12 +74,6 @@ export const CLASSES = {
   success: 'success',
   error: 'error',
   active: 'active',
-  wiggle: 'wiggle',
-  entering: 'entering',
-  notification: 'island-notification',
-  notificationText: 'notification-text',
-  notificationClose: 'notification-close',
-  notificationShow: 'show-notification',
 } as const;
 
 // ============================================================================
@@ -144,7 +136,6 @@ export const ISLAND_CSS = {
     radiusSmall: 8,
     radiusFull: '50%',
     radiusPill: 100,
-    radiusNotification: 22,
     widthCollapsed: 320,
     // 650 & sizeSmall 11 to fit text of websites
     // without spilling to the line below
@@ -164,8 +155,6 @@ export const ISLAND_CSS = {
     toggleKnobSizeActive: 20,
     zIndex: 2147483647,
     expandToLeft: true,
-    notificationHeight: 44,
-    notificationGap: 8,
     selectHeight: 32,
   },
   spacing: {
@@ -195,8 +184,6 @@ export const ISLAND_CSS = {
     smooth: '0.25s ease',
     gradient: '0.3s ease',
     spin: '1s cubic-bezier(0.4, 0, 0.2, 1) infinite',
-    wiggle: '300ms cubic-bezier(0.25, 1, 0.5, 1)',
-    slideUp: '0.3s cubic-bezier(0.2, 0.0, 0, 1.0)',
   },
   shadows: {
     // Elevation 3 + slight glow

@@ -13,6 +13,7 @@ export class GhostOverlay {
   private currentPos: Point = { x: 0, y: 0 };
 
   constructor() {
+    console.debug('[Overlay]: Initiate overlay for screenshot rect');
     this.host = document.createElement('div');
     this.host.id = IDS.OVERLAY;
     this.shadow = this.host.attachShadow({ mode: 'closed' });
@@ -91,7 +92,7 @@ export class GhostOverlay {
       rect.width > CONFIG.MIN_SELECTION_ZX &&
       rect.height > CONFIG.MIN_SELECTION_ZY
     ) {
-      console.log('Image captured:', rect);
+      console.debug('Image captured:', rect);
       chrome.runtime.sendMessage<ExtensionMessage>({
         action: ExtensionAction.CAPTURE_SUCCESS,
         payload: rect,

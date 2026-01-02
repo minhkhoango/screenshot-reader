@@ -12,6 +12,11 @@ export interface SelectionRect extends Point {
   devicePixelRatio: number;
 }
 
+export interface UserLanguage {
+  language: string;
+  source: 'local_storage' | 'browser' | 'browser_base' | 'default';
+}
+
 export const ExtensionAction = {
   ACTIVATE_OVERLAY: 'ACTIVATE_OVERLAY',
   CAPTURE_SUCCESS: 'CAPTURE_SUCCESS',
@@ -22,7 +27,6 @@ export const ExtensionAction = {
   UPDATE_LANGUAGE: 'UPDATE_LANGUAGE',
   OCR_RESULT: 'OCR_RESULT',
   CROP_READY: 'CROP_READY',
-  SHOW_HINT: 'SHOW_HINT',
   OPEN_SHORTCUTS_PAGE: 'OPEN_SHORTCUTS_PAGE',
   GET_SHORTCUT: 'GET_SHORTCUT',
 } as const;
@@ -44,18 +48,19 @@ export interface CropReadyPayload {
   cursorPosition: Point;
 }
 
-export interface ShowHintPayload {
-  message: string;
-}
-
 export interface OcrPerformPayload {
   imageDataUrl: string;
   rect: SelectionRect;
   language: string;
 }
 
+export interface RequestLanguagePayload {
+  language: string;
+}
+
 export interface UpdateLanguagePayload {
   language: string;
+  croppedImage: string | null;
 }
 
 export type ExtensionMessage =
@@ -66,7 +71,7 @@ export type ExtensionMessage =
   | { action: typeof ExtensionAction.PERFORM_OCR; payload: OcrPerformPayload }
   | {
       action: typeof ExtensionAction.REQUEST_LANGUAGE_UPDATE;
-      payload: UpdateLanguagePayload;
+      payload: RequestLanguagePayload;
     }
   | {
       action: typeof ExtensionAction.UPDATE_LANGUAGE;
@@ -74,7 +79,6 @@ export type ExtensionMessage =
     }
   | { action: typeof ExtensionAction.OCR_RESULT; payload: OcrResultPayload }
   | { action: typeof ExtensionAction.CROP_READY; payload: CropReadyPayload }
-  | { action: typeof ExtensionAction.SHOW_HINT; payload: ShowHintPayload }
   | { action: typeof ExtensionAction.OPEN_SHORTCUTS_PAGE }
   | { action: typeof ExtensionAction.GET_SHORTCUT };
 
@@ -85,12 +89,6 @@ export interface MessageResponse {
   croppedImageUrl?: string;
   data?: SelectionRect;
   shortcut?: string;
-}
-
-export interface SessionStorage {
-  capturedImage: string;
-  croppedImage: string;
-  shortcutHintShown: boolean;
 }
 
 export interface IslandSettings {

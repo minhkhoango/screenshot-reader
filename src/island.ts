@@ -41,8 +41,6 @@ export class FloatingIsland {
   private isExpanded = false;
   private hasCopied = false;
   private hasAutocopied = false;
-  private showNotification = false;
-  private notificationMessage = '';
   private shortcutText = 'Set shortcut';
 
   // Element Refs
@@ -62,9 +60,9 @@ export class FloatingIsland {
   private isDragging = false;
   private dragOffset: Point = { x: 0, y: 0 };
 
-  constructor(cursorPosition: Point, imageUrl = '', notificationMessage = '') {
+  constructor(cursorPosition: Point, imageUrl = '') {
+    console.debug('[Island]: Initiate floating island');
     this.imageUrl = imageUrl;
-    this.notificationMessage = notificationMessage;
     this.position = this.clampToViewport(cursorPosition);
 
     this.host = document.createElement('div');
@@ -136,7 +134,6 @@ export class FloatingIsland {
     try {
       const stored = await chrome.storage.local.get([
         STORAGE_KEYS.ISLAND_SETTINGS,
-        STORAGE_KEYS.SHORTCUT_HINT_SHOWN,
       ]);
       const savedSettings = stored[STORAGE_KEYS.ISLAND_SETTINGS] as
         | Partial<IslandSettings>
@@ -146,14 +143,6 @@ export class FloatingIsland {
           ...DEFAULT_SETTINGS,
           ...savedSettings,
         };
-      }
-
-      // Show notification if not already shown and message provided
-      const hintShown = stored[STORAGE_KEYS.SHORTCUT_HINT_SHOWN] as
-        | boolean
-        | undefined;
-      if (!hintShown && this.notificationMessage) {
-        this.showNotification = true;
       }
     } catch {
       /* ignore */
@@ -167,7 +156,7 @@ export class FloatingIsland {
     this.shadow.appendChild(style);
 
     // Build container
-    this.container.className = `${CLASSES.island} ${CLASSES.entering} ${this.showNotification ? CLASSES.notificationShow : ''}`;
+    this.container.className = `${CLASSES.island}`;
     this.updatePosition();
     this.container.innerHTML = this.renderTemplate();
     this.shadow.appendChild(this.container);
@@ -183,11 +172,6 @@ export class FloatingIsland {
     this.els.image = query(this.container, `.${CLASSES.image}`);
     this.els.settingsBtn = query(this.container, `.${CLASSES.openSettings}`);
     this.els.settingsPanel = query(this.container, `.${CLASSES.settings}`);
-    this.els.notification = query(this.container, `.${CLASSES.notification}`);
-    this.els.notificationClose = query(
-      this.container,
-      `.${CLASSES.notificationClose}`
-    );
 
     this.bindEvents();
     this.updateUI();
@@ -195,10 +179,6 @@ export class FloatingIsland {
 
   private renderTemplate(): string {
     return `
-      <div class="${CLASSES.notification}">
-        <span class="${CLASSES.notificationText}">${this.notificationMessage}</span>
-        <button class="${CLASSES.notificationClose}" aria-label="Close">${ICONS.close}</button>
-      </div>
       <div class="${CLASSES.row}">
         <img class="${CLASSES.image}" src="${this.imageUrl}" alt="Captured region"/>
         <div class="${CLASSES.content}">
@@ -261,15 +241,6 @@ export class FloatingIsland {
       cleanText.length > maxLength
         ? cleanText.slice(0, maxLength) + '...'
         : cleanText || (isLoading ? '' : 'No text');
-
-    // Wiggle on error
-    if (this.state === 'error') {
-      this.container.classList.add(CLASSES.wiggle);
-      setTimeout(
-        () => this.container.classList.remove(CLASSES.wiggle),
-        CONFIG.WIGGLE_TIME
-      );
-    }
   }
 
   private renderSettingsRows(): string {
@@ -337,11 +308,6 @@ export class FloatingIsland {
       // Reposition after settings panel changes widget size
       this.position = this.constrainToViewport(this.position);
       this.updatePosition();
-    });
-
-    // Notification close button
-    this.els.notificationClose?.addEventListener('click', () => {
-      this.dismissNotification();
     });
 
     this.els.settingsPanel?.addEventListener(
@@ -460,15 +426,6 @@ export class FloatingIsland {
     }
   };
 
-  private dismissNotification(): void {
-    this.showNotification = false;
-    this.container.classList.remove(CLASSES.notificationShow);
-    // Mark as shown so it won't appear again
-    chrome.storage.local.set({
-      [STORAGE_KEYS.SHORTCUT_HINT_SHOWN]: true,
-    });
-  }
-
   private toggleExpand(force?: boolean): void {
     if (this.state === 'loading') return;
 
@@ -542,8 +499,7 @@ export class FloatingIsland {
         .${CLASSES.preview}, 
         .${CLASSES.settingsSelect}, 
         .${CLASSES.selectWrapper}, 
-        .${CLASSES.settingsActionBtn}, 
-        .${CLASSES.notificationClose}`
+        .${CLASSES.settingsActionBtn}`
       )
     )
       return;
@@ -588,16 +544,8 @@ export class FloatingIsland {
     const height = ISLAND_CSS.layout.heightCollapsed;
     const pad = ISLAND_CSS.layout.padding;
 
-    // Account for notification height if it will be shown
-    const notificationOffset = this.showNotification
-      ? ISLAND_CSS.layout.notificationHeight + ISLAND_CSS.layout.notificationGap
-      : 0;
-
     const x = Math.min(Math.max(pad, pos.x), window.innerWidth - width - pad);
-    const y = Math.min(
-      Math.max(pad + notificationOffset, pos.y),
-      window.innerHeight - height - pad
-    );
+    const y = Math.min(Math.max(pad, pos.y), window.innerHeight - height - pad);
     return { x, y };
   }
 
