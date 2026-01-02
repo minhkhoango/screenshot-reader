@@ -291,6 +291,7 @@ export class FloatingIsland {
                 <select class="${CLASSES.settingsSelect}" data-key="${config.key}">
                   ${optionsHtml}
                 </select>
+                <div class="${CLASSES.selectIcon}">${ICONS.dropdown}</div>
              </div>
            </div>`;
       }
@@ -343,90 +344,121 @@ export class FloatingIsland {
       this.dismissNotification();
     });
 
-    this.els.settingsPanel?.addEventListener('change', async (e) => {
-      const target = e.target as HTMLSelectElement;
-      if (!target.classList.contains(CLASSES.settingsSelect)) return;
+    this.els.settingsPanel?.addEventListener(
+      'change',
+      this.handleLanguageUpdate
+    );
 
-      const key = target.getAttribute('data-key') as keyof IslandSettings;
-      const value = target.value;
+    this.els.settingsPanel?.addEventListener(
+      'click',
+      this.handleToggleSettings
+    );
+  }
 
-      if (key && key === 'language') {
-        this.settings[key] = value;
-        chrome.storage.local.set({
-          [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
+  private handleToggleSettings = (e: PointerEvent): void => {
+    // Handle toggle clicks
+    const toggle = (e.target as HTMLElement).closest(`.${CLASSES.toggle}`);
+    if (toggle) {
+      const key = toggle.getAttribute('data-key') as keyof IslandSettings;
+      if (!key) return;
+
+      (this.settings[key] as boolean) = !this.settings[key];
+      toggle.classList.toggle(CLASSES.active, this.settings[key] as boolean);
+      chrome.storage.local.set({
+        [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
+      });
+
+      // Trigger action immediately when enabling
+      if (this.settings[key]) {
+        if (
+          key === 'autoExpand' &&
+          this.state === 'success' &&
+          !this.isExpanded
+        ) {
+          this.toggleExpand(true);
+        } else if (
+          key === 'autoCopy' &&
+          this.state === 'success' &&
+          this.text
+        ) {
+          this.copyToClipboard();
+        }
+      }
+      return;
+    }
+
+    // Handle button clicks
+    const button = (e.target as HTMLElement).closest(
+      `.${CLASSES.settingsActionBtn}`
+    );
+    if (button) {
+      const action = button.getAttribute('data-action');
+      if (action === 'openShortcuts') {
+        chrome.runtime.sendMessage<ExtensionMessage>({
+          action: ExtensionAction.OPEN_SHORTCUTS_PAGE,
         });
+      }
+    }
+  };
 
-        // Trigger update language / ocr logic
-        if (this.imageUrl) {
-          this.state = 'loading';
-          this.text = '';
-          this.hasCopied = false;
-          this.updateUI();
+  private handleLanguageUpdate = async (e: Event): Promise<void> => {
+    const target = e.target as HTMLSelectElement;
+    if (!target.classList.contains(CLASSES.settingsSelect)) return;
 
+    const key = target.getAttribute('data-key') as keyof IslandSettings;
+    const newLanguage = target.value;
+
+    if (key === 'language') {
+      // Optimistic UI update
+      this.settings[key] = newLanguage;
+      chrome.storage.local.set({
+        [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
+      });
+
+      // Trigger update language / ocr logic
+      if (this.imageUrl) {
+        const previousText = this.text;
+
+        this.state = 'loading';
+        this.text = '';
+        this.hasCopied = false;
+        this.updateUI();
+
+        try {
+          // Route through background for ensureOff func
           const ocrResult = await chrome.runtime.sendMessage<
             ExtensionMessage,
             MessageResponse
           >({
-            action: ExtensionAction.UPDATE_LANGUAGE,
-            payload: { language: value },
+            action: ExtensionAction.REQUEST_LANGUAGE_UPDATE,
+            payload: { language: newLanguage },
           });
 
-          if (ocrResult === undefined) {
-            console.log('ocrResult is undefined.');
+          if (!ocrResult || ocrResult.status === 'error') {
+            throw new Error(ocrResult?.message || 'Unknown OCR error');
           }
+
           this.state = 'success';
           this.text = ocrResult.message || '';
+
+          if (this.settings.autoCopy) {
+            this.copyToClipboard();
+          }
+        } catch (err) {
+          console.error('Language update failed:', err);
+
+          this.state = 'error';
+          this.text = previousText;
+
+          if (this.els.status) {
+            this.els.status.textContent = 'Retry Failed';
+          }
+        } finally {
           this.updateUI();
         }
       }
-    });
-
-    this.els.settingsPanel?.addEventListener('click', (e) => {
-      // Handle toggle clicks
-      const toggle = (e.target as HTMLElement).closest(`.${CLASSES.toggle}`);
-      if (toggle) {
-        const key = toggle.getAttribute('data-key') as keyof IslandSettings;
-        if (!key) return;
-
-        (this.settings[key] as boolean) = !this.settings[key];
-        toggle.classList.toggle(CLASSES.active, this.settings[key] as boolean);
-        chrome.storage.local.set({
-          [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
-        });
-
-        // Trigger action immediately when enabling
-        if (this.settings[key]) {
-          if (
-            key === 'autoExpand' &&
-            this.state === 'success' &&
-            !this.isExpanded
-          ) {
-            this.toggleExpand(true);
-          } else if (
-            key === 'autoCopy' &&
-            this.state === 'success' &&
-            this.text
-          ) {
-            this.copyToClipboard();
-          }
-        }
-        return;
-      }
-
-      // Handle button clicks
-      const button = (e.target as HTMLElement).closest(
-        `.${CLASSES.settingsActionBtn}`
-      );
-      if (button) {
-        const action = button.getAttribute('data-action');
-        if (action === 'openShortcuts') {
-          chrome.runtime.sendMessage<ExtensionMessage>({
-            action: ExtensionAction.OPEN_SHORTCUTS_PAGE,
-          });
-        }
-      }
-    });
-  }
+    }
+  };
 
   private dismissNotification(): void {
     this.showNotification = false;

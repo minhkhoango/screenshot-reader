@@ -18,6 +18,7 @@ export const ExtensionAction = {
   PING_CONTENT: 'PING_CONTENT',
   PING_OFFSCREEN: 'PING_OFFSCREEN',
   PERFORM_OCR: 'PERFORM_OCR',
+  REQUEST_LANGUAGE_UPDATE: 'REQUEST_LANGUAGE_UPDATE',
   UPDATE_LANGUAGE: 'UPDATE_LANGUAGE',
   OCR_RESULT: 'OCR_RESULT',
   CROP_READY: 'CROP_READY',
@@ -63,6 +64,10 @@ export type ExtensionMessage =
   | { action: typeof ExtensionAction.PING_CONTENT }
   | { action: typeof ExtensionAction.PING_OFFSCREEN }
   | { action: typeof ExtensionAction.PERFORM_OCR; payload: OcrPerformPayload }
+  | {
+      action: typeof ExtensionAction.REQUEST_LANGUAGE_UPDATE;
+      payload: UpdateLanguagePayload;
+    }
   | {
       action: typeof ExtensionAction.UPDATE_LANGUAGE;
       payload: UpdateLanguagePayload;

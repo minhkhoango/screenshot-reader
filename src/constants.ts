@@ -70,6 +70,7 @@ export const CLASSES = {
   settingsActionBtn: 'settings-action-btn',
   settingsSelect: 'settings-select',
   selectWrapper: 'select-wrapper',
+  selectIcon: 'select-icon',
   toggle: 'toggle',
   loading: 'loading',
   success: 'success',
@@ -124,7 +125,7 @@ export const ISLAND_CSS = {
     accentError: '#B3261E', // Google Red 600
     toggleInactive: '#D0D0D0',
     toggleActive: '#1DB954',
-    // Gemini Gradient
+    // Gemini Gradient`
     gradient: 'linear-gradient(135deg, #4285F4, #9B72CB, #D96570)',
     gradientBorder:
       'linear-gradient(135deg, rgba(66, 133, 244, 0.5), rgba(155, 114, 203, 0.5), rgba(217, 101, 112, 0.5))',

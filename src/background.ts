@@ -74,6 +74,35 @@ chrome.runtime.onMessage.addListener(
         })();
         return true; // Keep channel open for async response
       }
+      case ExtensionAction.REQUEST_LANGUAGE_UPDATE: {
+        (async () => {
+          try {
+            const isOffscreenReady = ensureOffscreenAlive();
+            if (!isOffscreenReady) {
+              throw new Error('Could not start OCR engine');
+            }
+
+            // Forward command to offscreen doc
+            const response = await chrome.runtime.sendMessage<
+              ExtensionMessage,
+              MessageResponse
+            >({
+              action: ExtensionAction.UPDATE_LANGUAGE,
+              payload: message.payload,
+            });
+
+            // return to island handleLanguageUpdate
+            sendResponse(response);
+          } catch (err) {
+            console.error('Language update failed:', err);
+            sendResponse({
+              status: 'error',
+              message: (err as Error).message,
+            });
+          }
+        })();
+        return true; // keep chanenl open
+      }
       case ExtensionAction.GET_SHORTCUT: {
         // Handle async work in IIFE while returning true synchronously
         (async () => {
@@ -139,9 +168,7 @@ async function handleCaptureSuccess(
   }
 
   try {
-    const isOffscreenReady = await ensureOffscreenAlive(
-      FILES_PATH.OFFSCREEN_HTML
-    );
+    const isOffscreenReady = await ensureOffscreenAlive();
     if (!isOffscreenReady) {
       console.error('Offscreen not reachable, aborting OCR');
       sendOcrResultToTab(tabId, {
@@ -214,7 +241,7 @@ async function handleCaptureSuccess(
   }
 }
 
-async function ensureOffscreenAlive(path: string): Promise<boolean> {
+async function ensureOffscreenAlive(): Promise<boolean> {
   // Ensure the document exists, then ping it; recreate once on failure.
   const ping = async () => {
     try {
@@ -230,10 +257,10 @@ async function ensureOffscreenAlive(path: string): Promise<boolean> {
     }
   };
 
-  await setupOffscreenDocument(path);
+  await setupOffscreenDocument(FILES_PATH.OFFSCREEN_HTML);
   if (await ping()) return true;
 
-  await setupOffscreenDocument(path);
+  await setupOffscreenDocument(FILES_PATH.OFFSCREEN_HTML);
   return await ping();
 }
 
