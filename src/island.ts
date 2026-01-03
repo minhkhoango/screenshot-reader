@@ -41,8 +41,6 @@ export class FloatingIsland {
   private isExpanded = false;
   private hasCopied = false;
   private hasAutocopied = false;
-  private showNotification = false;
-  private notificationMessage = '';
   private shortcutText = 'Set shortcut';
 
   // Element Refs
@@ -62,9 +60,9 @@ export class FloatingIsland {
   private isDragging = false;
   private dragOffset: Point = { x: 0, y: 0 };
 
-  constructor(cursorPosition: Point, imageUrl = '', notificationMessage = '') {
+  constructor(cursorPosition: Point, imageUrl = '') {
+    console.debug('[Island]: Initiate floating island');
     this.imageUrl = imageUrl;
-    this.notificationMessage = notificationMessage;
     this.position = this.clampToViewport(cursorPosition);
 
     this.host = document.createElement('div');
@@ -136,7 +134,6 @@ export class FloatingIsland {
     try {
       const stored = await chrome.storage.local.get([
         STORAGE_KEYS.ISLAND_SETTINGS,
-        STORAGE_KEYS.SHORTCUT_HINT_SHOWN,
       ]);
       const savedSettings = stored[STORAGE_KEYS.ISLAND_SETTINGS] as
         | Partial<IslandSettings>
@@ -146,14 +143,6 @@ export class FloatingIsland {
           ...DEFAULT_SETTINGS,
           ...savedSettings,
         };
-      }
-
-      // Show notification if not already shown and message provided
-      const hintShown = stored[STORAGE_KEYS.SHORTCUT_HINT_SHOWN] as
-        | boolean
-        | undefined;
-      if (!hintShown && this.notificationMessage) {
-        this.showNotification = true;
       }
     } catch {
       /* ignore */
@@ -167,7 +156,7 @@ export class FloatingIsland {
     this.shadow.appendChild(style);
 
     // Build container
-    this.container.className = `${CLASSES.island} ${CLASSES.entering} ${this.showNotification ? CLASSES.notificationShow : ''}`;
+    this.container.className = `${CLASSES.island}`;
     this.updatePosition();
     this.container.innerHTML = this.renderTemplate();
     this.shadow.appendChild(this.container);
@@ -183,11 +172,6 @@ export class FloatingIsland {
     this.els.image = query(this.container, `.${CLASSES.image}`);
     this.els.settingsBtn = query(this.container, `.${CLASSES.openSettings}`);
     this.els.settingsPanel = query(this.container, `.${CLASSES.settings}`);
-    this.els.notification = query(this.container, `.${CLASSES.notification}`);
-    this.els.notificationClose = query(
-      this.container,
-      `.${CLASSES.notificationClose}`
-    );
 
     this.bindEvents();
     this.updateUI();
@@ -195,10 +179,6 @@ export class FloatingIsland {
 
   private renderTemplate(): string {
     return `
-      <div class="${CLASSES.notification}">
-        <span class="${CLASSES.notificationText}">${this.notificationMessage}</span>
-        <button class="${CLASSES.notificationClose}" aria-label="Close">${ICONS.close}</button>
-      </div>
       <div class="${CLASSES.row}">
         <img class="${CLASSES.image}" src="${this.imageUrl}" alt="Captured region"/>
         <div class="${CLASSES.content}">
@@ -261,15 +241,6 @@ export class FloatingIsland {
       cleanText.length > maxLength
         ? cleanText.slice(0, maxLength) + '...'
         : cleanText || (isLoading ? '' : 'No text');
-
-    // Wiggle on error
-    if (this.state === 'error') {
-      this.container.classList.add(CLASSES.wiggle);
-      setTimeout(
-        () => this.container.classList.remove(CLASSES.wiggle),
-        CONFIG.WIGGLE_TIME
-      );
-    }
   }
 
   private renderSettingsRows(): string {
@@ -291,6 +262,7 @@ export class FloatingIsland {
                 <select class="${CLASSES.settingsSelect}" data-key="${config.key}">
                   ${optionsHtml}
                 </select>
+                <div class="${CLASSES.selectIcon}">${ICONS.dropdown}</div>
              </div>
            </div>`;
       }
@@ -338,104 +310,121 @@ export class FloatingIsland {
       this.updatePosition();
     });
 
-    // Notification close button
-    this.els.notificationClose?.addEventListener('click', () => {
-      this.dismissNotification();
-    });
+    this.els.settingsPanel?.addEventListener(
+      'change',
+      this.handleLanguageUpdate
+    );
 
-    this.els.settingsPanel?.addEventListener('change', async (e) => {
-      const target = e.target as HTMLSelectElement;
-      if (!target.classList.contains(CLASSES.settingsSelect)) return;
+    this.els.settingsPanel?.addEventListener(
+      'click',
+      this.handleToggleSettings
+    );
+  }
 
-      const key = target.getAttribute('data-key') as keyof IslandSettings;
-      const value = target.value;
+  private handleToggleSettings = (e: PointerEvent): void => {
+    // Handle toggle clicks
+    const toggle = (e.target as HTMLElement).closest(`.${CLASSES.toggle}`);
+    if (toggle) {
+      const key = toggle.getAttribute('data-key') as keyof IslandSettings;
+      if (!key) return;
 
-      if (key && key === 'language') {
-        this.settings[key] = value;
-        chrome.storage.local.set({
-          [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
+      (this.settings[key] as boolean) = !this.settings[key];
+      toggle.classList.toggle(CLASSES.active, this.settings[key] as boolean);
+      chrome.storage.local.set({
+        [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
+      });
+
+      // Trigger action immediately when enabling
+      if (this.settings[key]) {
+        if (
+          key === 'autoExpand' &&
+          this.state === 'success' &&
+          !this.isExpanded
+        ) {
+          this.toggleExpand(true);
+        } else if (
+          key === 'autoCopy' &&
+          this.state === 'success' &&
+          this.text
+        ) {
+          this.copyToClipboard();
+        }
+      }
+      return;
+    }
+
+    // Handle button clicks
+    const button = (e.target as HTMLElement).closest(
+      `.${CLASSES.settingsActionBtn}`
+    );
+    if (button) {
+      const action = button.getAttribute('data-action');
+      if (action === 'openShortcuts') {
+        chrome.runtime.sendMessage<ExtensionMessage>({
+          action: ExtensionAction.OPEN_SHORTCUTS_PAGE,
         });
+      }
+    }
+  };
 
-        // Trigger update language / ocr logic
-        if (this.imageUrl) {
-          this.state = 'loading';
-          this.text = '';
-          this.hasCopied = false;
-          this.updateUI();
+  private handleLanguageUpdate = async (e: Event): Promise<void> => {
+    const target = e.target as HTMLSelectElement;
+    if (!target.classList.contains(CLASSES.settingsSelect)) return;
 
+    const key = target.getAttribute('data-key') as keyof IslandSettings;
+    const newLanguage = target.value;
+
+    if (key === 'language') {
+      // Optimistic UI update
+      this.settings[key] = newLanguage;
+      chrome.storage.local.set({
+        [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
+      });
+
+      // Trigger update language / ocr logic
+      if (this.imageUrl) {
+        const previousText = this.text;
+
+        this.state = 'loading';
+        this.text = '';
+        this.hasCopied = false;
+        this.updateUI();
+
+        try {
+          // Route through background for ensureOff func
           const ocrResult = await chrome.runtime.sendMessage<
             ExtensionMessage,
             MessageResponse
           >({
-            action: ExtensionAction.UPDATE_LANGUAGE,
-            payload: { language: value },
+            action: ExtensionAction.REQUEST_LANGUAGE_UPDATE,
+            payload: { language: newLanguage },
           });
 
-          if (ocrResult === undefined) {
-            console.log('ocrResult is undefined.');
+          if (!ocrResult || ocrResult.status === 'error') {
+            throw new Error(ocrResult?.message || 'Unknown OCR error');
           }
+
           this.state = 'success';
           this.text = ocrResult.message || '';
+
+          if (this.settings.autoCopy) {
+            this.copyToClipboard();
+          }
+        } catch (err) {
+          console.error('Language update failed:', err);
+
+          this.state = 'error';
+          this.text = previousText;
+
+          if (this.els.status) {
+            this.els.status.textContent = 'Retry Failed';
+          }
+        } finally {
           this.updateUI();
         }
       }
-    });
-
-    this.els.settingsPanel?.addEventListener('click', (e) => {
-      // Handle toggle clicks
-      const toggle = (e.target as HTMLElement).closest(`.${CLASSES.toggle}`);
-      if (toggle) {
-        const key = toggle.getAttribute('data-key') as keyof IslandSettings;
-        if (!key) return;
-
-        (this.settings[key] as boolean) = !this.settings[key];
-        toggle.classList.toggle(CLASSES.active, this.settings[key] as boolean);
-        chrome.storage.local.set({
-          [STORAGE_KEYS.ISLAND_SETTINGS]: this.settings,
-        });
-
-        // Trigger action immediately when enabling
-        if (this.settings[key]) {
-          if (
-            key === 'autoExpand' &&
-            this.state === 'success' &&
-            !this.isExpanded
-          ) {
-            this.toggleExpand(true);
-          } else if (
-            key === 'autoCopy' &&
-            this.state === 'success' &&
-            this.text
-          ) {
-            this.copyToClipboard();
-          }
-        }
-        return;
-      }
-
-      // Handle button clicks
-      const button = (e.target as HTMLElement).closest(
-        `.${CLASSES.settingsActionBtn}`
-      );
-      if (button) {
-        const action = button.getAttribute('data-action');
-        if (action === 'openShortcuts') {
-          chrome.runtime.sendMessage<ExtensionMessage>({
-            action: ExtensionAction.OPEN_SHORTCUTS_PAGE,
-          });
-        }
-      }
-    });
-  }
-
-  private dismissNotification(): void {
-    this.showNotification = false;
-    this.container.classList.remove(CLASSES.notificationShow);
-    // Mark as shown so it won't appear again
-    chrome.storage.local.set({
-      [STORAGE_KEYS.SHORTCUT_HINT_SHOWN]: true,
-    });
-  }
+    }
+  };
 
   private toggleExpand(force?: boolean): void {
     if (this.state === 'loading') return;
@@ -510,8 +499,7 @@ export class FloatingIsland {
         .${CLASSES.preview}, 
         .${CLASSES.settingsSelect}, 
         .${CLASSES.selectWrapper}, 
-        .${CLASSES.settingsActionBtn}, 
-        .${CLASSES.notificationClose}`
+        .${CLASSES.settingsActionBtn}`
       )
     )
       return;
@@ -556,16 +544,8 @@ export class FloatingIsland {
     const height = ISLAND_CSS.layout.heightCollapsed;
     const pad = ISLAND_CSS.layout.padding;
 
-    // Account for notification height if it will be shown
-    const notificationOffset = this.showNotification
-      ? ISLAND_CSS.layout.notificationHeight + ISLAND_CSS.layout.notificationGap
-      : 0;
-
     const x = Math.min(Math.max(pad, pos.x), window.innerWidth - width - pad);
-    const y = Math.min(
-      Math.max(pad + notificationOffset, pos.y),
-      window.innerHeight - height - pad
-    );
+    const y = Math.min(Math.max(pad, pos.y), window.innerHeight - height - pad);
     return { x, y };
   }
 

@@ -1,17 +1,11 @@
 import { FILES_PATH, OCR_CONFIG } from './constants';
 import { ExtensionAction } from './types';
-import type {
-  ExtensionMessage,
-  MessageResponse,
-  SelectionRect,
-  CropReadyPayload,
-} from './types';
+import type { ExtensionMessage, MessageResponse, SelectionRect } from './types';
 import Tesseract from 'tesseract.js';
 
-// Initialize worker once
 let worker: Tesseract.Worker | null = null;
-let currentLanguage: string = 'eng'; // the default
-let saveCroppedImage: string | null = null;
+let currentLanguage: string = 'eng';
+let localCroppedImage: string | null = null;
 
 chrome.runtime.onMessage.addListener(
   (
@@ -21,18 +15,22 @@ chrome.runtime.onMessage.addListener(
   ) => {
     switch (message.action) {
       case ExtensionAction.PING_OFFSCREEN:
+        console.debug('[Offscreen]', message.action);
         sendResponse({ status: 'ok', message: 'pong' });
         break;
 
       case ExtensionAction.PERFORM_OCR:
+        console.debug('[Offscreen]', message.action);
         const { imageDataUrl, rect, language } = message.payload;
         currentLanguage = language;
         runTesseractOcr(imageDataUrl, rect, language, sendResponse);
         break;
 
       case ExtensionAction.UPDATE_LANGUAGE:
-        const { language: retryLanguage } = message.payload;
-        retryTesseractOcr(retryLanguage, sendResponse);
+        console.debug('[Offscreen]', message.action);
+        const { language: retryLanguage, croppedImage } = message.payload;
+        retryTesseractOcr(retryLanguage, croppedImage, sendResponse);
+        break;
     }
 
     return true; // Keep channel open
@@ -52,7 +50,7 @@ async function runTesseractOcr(
   };
 
   try {
-    console.log(`[Offscreen] Processing ${rect.width}x${rect.height} region`);
+    console.debug(`[Offscreen] Processing ${rect.width}x${rect.height} region`);
 
     // Crop the image to the selected region
     let cropped: string;
@@ -60,7 +58,7 @@ async function runTesseractOcr(
       cropped = await cropImage(imageDataUrl, rect);
 
       // Save cropped image in case of language retry
-      saveCroppedImage = cropped;
+      localCroppedImage = cropped;
     } catch (err) {
       console.error('[Offscreen] Image cropping error:', err);
       sendResponse({
@@ -72,16 +70,16 @@ async function runTesseractOcr(
       return;
     }
 
-    // Send CROP_READY message to background (which will forward to content script)
-    const cropReadyPayload: CropReadyPayload = {
-      croppedImageUrl: cropped,
-      cursorPosition,
-    };
+    console.debug('[Offscreen] sending cropped img -> bg -> content');
     chrome.runtime.sendMessage<ExtensionMessage>({
       action: ExtensionAction.CROP_READY,
-      payload: cropReadyPayload,
+      payload: {
+        croppedImageUrl: cropped,
+        cursorPosition,
+      },
     });
 
+    console.debug('[Offscreen] running OCR');
     await performRecognition(cropped, language, sendResponse);
   } catch (err) {
     console.error('[Offscreen] OCR recognition error:', err);
@@ -96,15 +94,17 @@ async function runTesseractOcr(
 
 async function retryTesseractOcr(
   language: string,
+  bgCroppedImage: string | null,
   sendResponse: (response: MessageResponse) => void
 ) {
   try {
-    console.log(`[Offscreen] Retrying OCR with language: ${language}`);
-    if (!saveCroppedImage) {
+    if (!localCroppedImage && !bgCroppedImage) {
       throw new Error('No saved cropped image found for retry');
     }
+    const croppedImage = (localCroppedImage ?? bgCroppedImage) as string;
 
-    await performRecognition(saveCroppedImage, language, sendResponse);
+    console.debug(`[Offscreen] Retrying OCR with language: ${language}`);
+    await performRecognition(croppedImage, language, sendResponse);
   } catch (err) {
     console.error('[Offscreen] Retry error:', err);
     sendResponse({
@@ -135,13 +135,13 @@ async function performRecognition(
     return;
   }
 
-  // Perform OCR recognition
+  console.debug(`[Offscreen] engine: ${engine}, perform recognizing`);
   try {
     const result = await engine.recognize(image);
     const confidence = result.data.confidence;
     const text = result.data.text.trim();
 
-    console.log(`OCR SUCCESS [confidence: ${confidence}%]:\n`, text);
+    console.debug(`[Offscreen] OCR SUCCESS [confidence: ${confidence}%]:\n`);
     sendResponse({
       status: 'ok',
       message: text,
@@ -159,11 +159,32 @@ async function performRecognition(
   }
 }
 
+/*
+ * KNOWN ISSUE: "Parameter not found" warnings during language initialization
+ * These are legacy parameters embedded in the .traineddata, and are harmless
+ * Infected: chi_sim, chi_tra, greek, italian, japanese, korean, vietnamese
+ */
 async function getWorker(language: string): Promise<Tesseract.Worker> {
-  if (worker && currentLanguage === language) return worker;
+  if (worker && currentLanguage === language) {
+    console.debug('[Offscreen] reusing old worker');
+    return worker;
+  }
 
-  if (worker) await worker.terminate();
+  if (worker && currentLanguage !== language) {
+    console.debug(
+      `[Offscreen] re-init worker from ${currentLanguage} to ${language}`
+    );
+    try {
+      await worker.reinitialize(language, OCR_CONFIG.OEM);
+      currentLanguage = language;
+      return worker;
+    } catch (err) {
+      console.warn(`[Offscreen] worker re-init failed: ${err}`);
+      await worker.terminate();
+    }
+  }
 
+  console.debug('[Offscreen] create new worker lang:', language);
   worker = await Tesseract.createWorker(language, OCR_CONFIG.OEM, {
     workerBlobURL: false,
     workerPath: FILES_PATH.OCR_WORKER,
@@ -173,20 +194,6 @@ async function getWorker(language: string): Promise<Tesseract.Worker> {
   });
 
   currentLanguage = language;
-
-  const params: Partial<Tesseract.WorkerParams> = {};
-
-  // Brian's parameter logic
-  if (language.endsWith('_vert')) {
-    params.tessedit_pageseg_mode = Tesseract.PSM.SINGLE_BLOCK_VERT_TEXT;
-  }
-  if (['chi_sim', 'chi_tra', 'jpn', 'jpn_vert', 'tha'].includes(language)) {
-    params.preserve_interword_spaces = '1';
-  }
-  if (Object.keys(params).length > 0) {
-    await worker.setParameters(params);
-  }
-
   return worker;
 }
 

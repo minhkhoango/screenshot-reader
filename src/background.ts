@@ -4,50 +4,52 @@ import { ExtensionAction } from './types';
 import type {
   ExtensionMessage,
   MessageResponse,
-  SessionStorage,
   OcrResultPayload,
   SelectionRect,
   CropReadyPayload,
-  ShowHintPayload,
   IslandSettings,
+  UserLanguage,
 } from './types';
 
 // Track the tab that initiated OCR (for forwarding CROP_READY)
 let activeOcrTabId: number | undefined;
+let capturedImage: string | null = null;
+let croppedImage: string | null = null;
 
 // tool bar icon click, chrome handle the shortcut automatically
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id || !tab.url) return;
   if (tab.url.startsWith('chrome://')) {
-    console.log('Protected site, backup method needed');
+    console.error('[BG] Protected site, backup method needed');
     return;
   }
 
   try {
-    // Capture a full screenshot
-    const dataUrl: string = await chrome.tabs.captureVisibleTab({
+    console.debug('[BG] screenshot');
+    capturedImage = await chrome.tabs.captureVisibleTab({
       format: OCR_CONFIG.CAPTURE_FORMAT,
     });
-    await chrome.storage.session.set<SessionStorage>({
-      [STORAGE_KEYS.CAPTURED_IMAGE]: dataUrl,
-    });
 
-    // start the UI
+    console.debug('[BG] load content.ts ...');
     await ensureContentScriptLoaded(tab.id);
-    const overlayMessage: ExtensionMessage = {
-      action: ExtensionAction.ACTIVATE_OVERLAY,
-    };
-    const overlayResponse = await sendMessageToTab(tab.id, overlayMessage);
+
+    console.debug('[BG] send ACTIVATE_OVERLAY to content');
+    const overlayResponse = await chrome.tabs.sendMessage<ExtensionMessage>(
+      tab.id,
+      {
+        action: ExtensionAction.ACTIVATE_OVERLAY,
+      }
+    );
     if (overlayResponse.status !== 'ok') {
-      console.warn('Overlay failed:', overlayResponse.message);
+      console.error('[BG] Overlay failed:', overlayResponse.message);
+      return;
     }
 
-    await checkAndShowShortcutHint(tab.id);
-
+    console.debug('[BG] warming up offscreen engine...');
     // warm up the offscreen engine
     await setupOffscreenDocument(FILES_PATH.OFFSCREEN_HTML);
   } catch (err) {
-    console.error('Background workflow error:', err);
+    console.error('[BG] On click activation error:', err);
   }
 });
 
@@ -60,6 +62,7 @@ chrome.runtime.onMessage.addListener(
   ) => {
     switch (message.action) {
       case ExtensionAction.CAPTURE_SUCCESS: {
+        console.debug('[BG]', message.action);
         // Handle async work in IIFE while returning true synchronously
         (async () => {
           try {
@@ -74,7 +77,42 @@ chrome.runtime.onMessage.addListener(
         })();
         return true; // Keep channel open for async response
       }
+      case ExtensionAction.REQUEST_LANGUAGE_UPDATE: {
+        console.debug('[BG]', message.action);
+        (async () => {
+          try {
+            const isOffscreenReady = ensureOffscreenAlive();
+            if (!isOffscreenReady) {
+              throw new Error('Could not start OCR engine');
+            }
+
+            // Forward command to offscreen doc
+            const { language } = message.payload;
+            const response = await chrome.runtime.sendMessage<
+              ExtensionMessage,
+              MessageResponse
+            >({
+              action: ExtensionAction.UPDATE_LANGUAGE,
+              payload: {
+                language: language,
+                croppedImage: croppedImage,
+              },
+            });
+
+            // return to island handleLanguageUpdate
+            sendResponse(response);
+          } catch (err) {
+            console.error('[BG] Language update failed:', err);
+            sendResponse({
+              status: 'error',
+              message: (err as Error).message,
+            });
+          }
+        })();
+        return true; // keep chanenl open
+      }
       case ExtensionAction.GET_SHORTCUT: {
+        console.debug('[BG]', message.action);
         // Handle async work in IIFE while returning true synchronously
         (async () => {
           try {
@@ -93,13 +131,17 @@ chrome.runtime.onMessage.addListener(
         return true; // Keep channel open for async response
       }
       case ExtensionAction.CROP_READY: {
-        // Forward CROP_READY from offscreen to content script (fire-and-forget)
+        console.debug('[BG]', message.action);
+        if (message.payload?.croppedImageUrl) {
+          croppedImage = message.payload.croppedImageUrl;
+        }
         if (activeOcrTabId) {
           sendCropReadyToTab(activeOcrTabId, message.payload);
         }
         return false; // No response needed
       }
       case ExtensionAction.OPEN_SHORTCUTS_PAGE: {
+        console.debug('[BG]', message.action);
         chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
         sendResponse({ status: 'ok' });
         return false; // Synchronous response
@@ -113,18 +155,11 @@ async function handleCaptureSuccess(
   payload: SelectionRect,
   tabId?: number
 ): Promise<void> {
-  console.log('Captured selection:', payload, 'tabId:', tabId);
-
   // Track active tab for CROP_READY forwarding
   activeOcrTabId = tabId;
 
-  const storage = await chrome.storage.session.get<SessionStorage>(
-    STORAGE_KEYS.CAPTURED_IMAGE
-  );
-  const capturedImage = storage.capturedImage;
-
   if (!capturedImage) {
-    console.error('No image found in storage');
+    console.error('[BG] No image found in storage');
     sendOcrResultToTab(tabId, {
       success: false,
       text: 'No screenshot found',
@@ -137,13 +172,12 @@ async function handleCaptureSuccess(
     });
     return;
   }
+  console.debug('[BG] image found in storage, warming offscreen');
 
   try {
-    const isOffscreenReady = await ensureOffscreenAlive(
-      FILES_PATH.OFFSCREEN_HTML
-    );
+    const isOffscreenReady = await ensureOffscreenAlive();
     if (!isOffscreenReady) {
-      console.error('Offscreen not reachable, aborting OCR');
+      console.error('[BG] Offscreen not reachable, aborting OCR');
       sendOcrResultToTab(tabId, {
         success: false,
         text: 'OCR engine not ready',
@@ -157,7 +191,12 @@ async function handleCaptureSuccess(
       return;
     }
 
-    const language = await getUserLanguage();
+    const { language, source } = await getUserLanguage();
+    console.debug(`[BG] User language: ${language}, source: ${source}`);
+
+    console.debug(
+      `[BG] sending rect ${payload}, lang: ${language} to PERFORM_OCR`
+    );
     const ocrResult = await chrome.runtime.sendMessage<
       ExtensionMessage,
       MessageResponse
@@ -170,9 +209,8 @@ async function handleCaptureSuccess(
       },
     });
 
-    console.log('Background received OCR result:', ocrResult);
+    console.debug('[BG] OCR result:', ocrResult);
     if (ocrResult === undefined) {
-      console.log('ocrResult is undefined, returning error to tab');
       sendOcrResultToTab(tabId, {
         success: false,
         text: 'No OCR response from offscreen',
@@ -198,6 +236,7 @@ async function handleCaptureSuccess(
       },
     };
 
+    console.debug(`[BG] sending ${resultPayload} OCR_RESULT to update UI`);
     sendOcrResultToTab(tabId, resultPayload);
   } catch (err) {
     console.error('Offscreen communication failed:', err);
@@ -214,7 +253,7 @@ async function handleCaptureSuccess(
   }
 }
 
-async function ensureOffscreenAlive(path: string): Promise<boolean> {
+async function ensureOffscreenAlive(): Promise<boolean> {
   // Ensure the document exists, then ping it; recreate once on failure.
   const ping = async () => {
     try {
@@ -230,10 +269,10 @@ async function ensureOffscreenAlive(path: string): Promise<boolean> {
     }
   };
 
-  await setupOffscreenDocument(path);
+  await setupOffscreenDocument(FILES_PATH.OFFSCREEN_HTML);
   if (await ping()) return true;
 
-  await setupOffscreenDocument(path);
+  await setupOffscreenDocument(FILES_PATH.OFFSCREEN_HTML);
   return await ping();
 }
 
@@ -248,7 +287,7 @@ async function sendOcrResultToTab(
       payload,
     });
   } catch (err) {
-    console.error('Failed to send OCR result to tab:', err);
+    console.error('[BG] Failed to send OCR result to tab:', err);
   }
 }
 
@@ -263,7 +302,7 @@ async function sendCropReadyToTab(
       payload,
     });
   } catch (err) {
-    console.error('Failed to send CROP_READY to tab:', err);
+    console.error('[BG] Failed to send CROP_READY to tab:', err);
   }
 }
 
@@ -277,20 +316,6 @@ async function ensureContentScriptLoaded(tabId: number): Promise<void> {
       target: { tabId },
       files: [FILES_PATH.CONTENT_SCRIPT],
     });
-  }
-}
-
-async function sendMessageToTab(
-  tabId: number,
-  message: ExtensionMessage
-): Promise<MessageResponse> {
-  try {
-    return await chrome.tabs.sendMessage<ExtensionMessage, MessageResponse>(
-      tabId,
-      message
-    );
-  } catch (err) {
-    return { status: 'error', message: (err as Error).message };
   }
 }
 
@@ -310,7 +335,7 @@ async function setupOffscreenDocument(path: string): Promise<void> {
     return;
   }
 
-  // Creating the document if doesn't exist
+  console.debug('[BG] offscreen doc not found, creating...');
   creatingOffscreenPromise = chrome.offscreen.createDocument({
     url: path,
     reasons: [chrome.offscreen.Reason.BLOBS],
@@ -321,39 +346,6 @@ async function setupOffscreenDocument(path: string): Promise<void> {
   creatingOffscreenPromise = null;
 }
 
-async function checkAndShowShortcutHint(tabId: number) {
-  const result = await chrome.storage.local.get(
-    STORAGE_KEYS.SHORTCUT_HINT_SHOWN
-  );
-  if (!result[STORAGE_KEYS.SHORTCUT_HINT_SHOWN]) {
-    const shortcutCommand = await getShortcutCommand();
-    const message = shortcutCommand
-      ? `Press ${shortcutCommand} to capture instantly`
-      : 'Click the extension icon to capture';
-    const hintPayload: ShowHintPayload = {
-      message: message,
-    };
-
-    chrome.tabs
-      .sendMessage(tabId, {
-        action: ExtensionAction.SHOW_HINT,
-        payload: hintPayload,
-      })
-      .catch(() => {
-        /* ignore if tab closed */
-      });
-
-    // Don't force user to 'X' notification
-    setTimeout(
-      async () =>
-        await chrome.storage.local.set({
-          [STORAGE_KEYS.SHORTCUT_HINT_SHOWN]: true,
-        }),
-      4000
-    );
-  }
-}
-
 async function getShortcutCommand(): Promise<string> {
   const commands = await chrome.commands.getAll();
   const cmd = commands.find((c) => c.name === '_execute_action');
@@ -362,25 +354,40 @@ async function getShortcutCommand(): Promise<string> {
   return cmd.shortcut;
 }
 
-async function getUserLanguage(): Promise<string> {
+async function getUserLanguage(): Promise<UserLanguage> {
   try {
     // Check user storage
     const stored = await chrome.storage.local.get(STORAGE_KEYS.ISLAND_SETTINGS);
     const settings = stored[
       STORAGE_KEYS.ISLAND_SETTINGS
     ] as Partial<IslandSettings>;
-    if (settings?.language) return settings.language;
+    if (settings?.language)
+      return {
+        language: settings.language,
+        source: 'local_storage',
+      };
   } catch {
     /* ignore */
   }
 
   // Check browser language
   const uiLang = await chrome.i18n.getUILanguage();
-  if (CHROME_TO_TESSERACT[uiLang]) return CHROME_TO_TESSERACT[uiLang];
+  if (CHROME_TO_TESSERACT[uiLang])
+    return {
+      language: CHROME_TO_TESSERACT[uiLang],
+      source: 'browser',
+    };
 
   // Try mapping base language (e.g. 'fr' from 'fr-CA')
   const prefix = uiLang.split('-')[0];
-  if (CHROME_TO_TESSERACT[prefix]) return CHROME_TO_TESSERACT[prefix];
+  if (CHROME_TO_TESSERACT[prefix])
+    return {
+      language: CHROME_TO_TESSERACT[prefix],
+      source: 'browser_base',
+    };
 
-  return 'eng';
+  return {
+    language: 'eng',
+    source: 'default',
+  };
 }
